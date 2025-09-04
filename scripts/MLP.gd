@@ -11,7 +11,7 @@ var w2: PackedFloat32Array
 var b2: PackedFloat32Array
 
 func _to_string() -> String:
-	return str("input: ", input_size, "\nhidden: ", hidden_size, "\noutput: ", output_size, "\nw1: ", w1, "\nb1: ", b1, "\nw2: ", w2, "\nb2: ", b2)
+	return str("\ninput: ", input_size, "\nhidden: ", hidden_size, "\noutput: ", output_size, "\nw1: ", w1, "\nb1: ", b1, "\nw2: ", w2, "\nb2: ", b2)
  
 func _init(input_size: int, hidden_size: int, output_size: int):
 	self.input_size = input_size

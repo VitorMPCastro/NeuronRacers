@@ -32,7 +32,7 @@ var max_distance = 0.0
 var last_position: Vector2
 
 func _to_string() -> String:
-	return str("\nbrain: ", self.brain, "\nuse_ai: ", self.use_ai)
+	return str("\ntime_alive: ", self.time_alive, "\ncrashed: ", self.crashed, "\nis_player: ", self.is_player, "\nmax_distance: ", self.max_distance, "\nuse_ai: ", self.use_ai)
 
 func get_average_speed():
 	return total_speed / time_alive if time_alive > 0.0 else 0.0

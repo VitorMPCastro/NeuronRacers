@@ -6,7 +6,6 @@ class_name AgentManager
 @export var population_size: int = 20
 @export var generation_time: float = 20.0
 @export var is_training: bool = false
-@export var print_debug_generation: bool = false
 @export_range(0.0, 1.0, 0.01, "How many cars spread their genes") var elitism_percent: float = 0.2
 @export_subgroup("Mutation")
 @export var weight: float = 0.1
@@ -15,6 +14,9 @@ class_name AgentManager
 @export var input_layer_neurons: int = 5
 @export var hidden_layer_neurons: int = 8
 @export var output_layer_neurons: int = 2
+@export_category("Debug")
+@export var print_debug_generation: bool = false
+@export var print_new_brains_to_console: bool = false
 var cars = []
 var best_cars = []
 static var best_speed: int = -1
@@ -72,6 +74,7 @@ func next_generation():
 	
 	# Cria nova população com os cérebros
 	print(generation_to_string()) if print_debug_generation else null
+	print()
 	
 	clear_scene()
 	spawn_population(new_brains)
@@ -115,6 +118,7 @@ func get_best_speed():
 func kill_stagnant_car(car):
 	var grace_period = 3.0
 	if car.get_average_speed() < AgentManager.best_speed * 0.5 && grace_period < timer:
+		car.fitness = 0
 		car.die()
 
 func sort_by_fitness():
@@ -139,8 +143,25 @@ func is_all_cars_dead():
 			return false
 	return true
 
-func generation_to_string():
+func generation_to_string(options: Dictionary = {
+	"car_obj": false, 
+	"car_fitness": false, 
+	"car_brain": false,
+	"new_brains": false
+	}) -> String:
+	
 	var generation_string = str("\n GENERATION ", generation)
-	for car in cars:
-		generation_string += str("\nCar: \n", car, "\n Car fitness: ", car.fitness, "\nCheckpoints: ", RaceProgressionManager.car_progress[car]["checkpoints"])
+	var function_extractor = {
+		"car_obj": func(car) -> String: return car._to_string(), 
+		"car_fitness": func(car) -> String: return car.fitness, 
+		"car_brain": func(car) -> String: return car.brain,
+		"new_brains": func(new_brains: Array[MLP]) -> String: return str(new_brains.map(func(brain): brain._to_string()))
+	}
+	
+	for key in options:
+		if options[key]:
+			for car in cars:
+				generation_string += str("\n", key, ": ")
+
+	
 	return generation_string
