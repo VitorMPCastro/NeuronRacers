@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://c8xsqyc4i82vr"]
+
+[ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="1_4ujry"]
+[ext_resource type="Texture2D" uid="uid://be5mb6kys2jov" path="res://icon.svg" id="2_pqlom"]
+
+[node name="Protolevel" type="Node2D"]
+
+[node name="TextureRect" type="TextureRect" parent="."]
+offset_left = -2592.0
+offset_top = -2912.0
+offset_right = 2824.0
+offset_bottom = 3040.0
+texture = ExtResource("2_pqlom")
+
+[node name="Car" parent="." instance=ExtResource("1_4ujry")]
+visible = false
+is_player = false
+
+[node name="Camera2D" type="Camera2D" parent="Car"]
+zoom = Vector2(0.5, 0.5)

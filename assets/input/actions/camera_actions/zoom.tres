@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="Action" load_steps=2 format=3 uid="uid://dcl115yy4wcib"]
+
+[ext_resource type="Script" uid="uid://d2ovrrr5woa43" path="res://scripts/input_system/action.gd" id="1_jvqfs"]
+
+[resource]
+script = ExtResource("1_jvqfs")
+name = "PLACEHOLDER"
+action_type = 0
+cooldown = 0.0
+is_hold = false
+keys_button = Array[InputEvent]([])
+keys_axis_pos = Array[InputEvent]([])
+keys_axis_neg = Array[InputEvent]([])
+metadata/_custom_type_script = "uid://d2ovrrr5woa43"

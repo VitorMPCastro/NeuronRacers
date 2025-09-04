@@ -1,0 +1,50 @@
+[gd_scene load_steps=5 format=3 uid="uid://j5udtokn6d60"]
+
+[ext_resource type="Script" uid="uid://npmcexxqvm6k" path="res://scripts/racecar.gd" id="1_qt2eu"]
+[ext_resource type="Texture2D" uid="uid://di2bveb00kr2p" path="res://assets/cars/pitstop_car_11.png" id="2_50v30"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_40s5a"]
+size = Vector2(413, 134)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_k55xp"]
+radius = 148.122
+
+[node name="Car" type="CharacterBody2D"]
+collision_layer = 2
+script = ExtResource("1_qt2eu")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+rotation = 1.5708
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_50v30")
+flip_v = true
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-11.5, 0)
+shape = SubResource("RectangleShape2D_40s5a")
+
+[node name="Area2D" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(-4, 0)
+shape = SubResource("CircleShape2D_k55xp")
+
+[node name="RayParent" type="Node2D" parent="."]
+
+[node name="RayCast2D" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(0, -500)
+
+[node name="RayCast2D2" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(0, 500)
+
+[node name="RayCast2D3" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(400, -400)
+
+[node name="RayCast2D4" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(400, 400)
+
+[node name="RayCast2D5" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(800, 0)
+
+[node name="RayCast2D6" type="RayCast2D" parent="RayParent"]
+target_position = Vector2(-800, 0)

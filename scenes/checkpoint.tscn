@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://d4amq4tvfwyjq"]
+
+[node name="Checkpoint" type="Node2D"]
+
+[node name="A" type="Node2D" parent="."]
+position = Vector2(-1000, 0)
+
+[node name="B" type="Node2D" parent="."]
+position = Vector2(1000, 0)
