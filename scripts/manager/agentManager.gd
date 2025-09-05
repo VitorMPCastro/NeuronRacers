@@ -74,7 +74,6 @@ func next_generation():
 	
 	# Cria nova população com os cérebros
 	print(generation_to_string()) if print_debug_generation else null
-	print()
 	
 	clear_scene()
 	spawn_population(new_brains)
@@ -105,7 +104,7 @@ func update_car_fitness():
 	for car in cars:
 		if car:
 			kill_stagnant_car(car)
-			car.fitness = RaceProgressionManager.car_progress[car]["checkpoints"]*2 + (100/RaceProgressionManager.get_distance_to_next_checkpoint(car))
+			car.fitness = RaceProgressionManager.car_progress[car]["checkpoints"]*2 + (1000/RaceProgressionManager.get_distance_to_next_checkpoint(car))
 
 func get_best_speed():
 	for car in cars:
@@ -117,8 +116,7 @@ func get_best_speed():
 
 func kill_stagnant_car(car):
 	var grace_period = 3.0
-	if car.get_average_speed() < AgentManager.best_speed * 0.5 && grace_period < timer:
-		car.fitness = 0
+	if car.get_average_speed() < AgentManager.best_speed * 0.25 && grace_period < car.time_alive:
 		car.die()
 
 func sort_by_fitness():
@@ -144,24 +142,26 @@ func is_all_cars_dead():
 	return true
 
 func generation_to_string(options: Dictionary = {
-	"car_obj": false, 
-	"car_fitness": false, 
-	"car_brain": false,
-	"new_brains": false
-	}) -> String:
+	"car_obj": {"print": false, "once": false},
+	"car_fitness": {"print": false, "once": false},
+	"car_brain": {"print": false, "once": false},
+	"new_brains": {"print": true, "once": true}
+}) -> String:
 	
 	var generation_string = str("\n GENERATION ", generation)
 	var function_extractor = {
-		"car_obj": func(car) -> String: return car._to_string(), 
-		"car_fitness": func(car) -> String: return car.fitness, 
-		"car_brain": func(car) -> String: return car.brain,
-		"new_brains": func(new_brains: Array[MLP]) -> String: return str(new_brains.map(func(brain): brain._to_string()))
+		"car_obj": func(car = null) -> String: return car._to_string(), 
+		"car_fitness": func(car = null) -> String: return car.fitness, 
+		"car_brain": func(car = null) -> String: return car.brain,
+		"new_brains": func(new_brains: Array[MLP] = []) -> String: return str(new_brains.map(func(brain): brain._to_string()))
 	}
 	
-	for key in options:
-		if options[key]:
+	for key in options as Dictionary:
+		if options[key]["print"]:
 			for car in cars:
-				generation_string += str("\n", key, ": ")
-
+				generation_string += str("\n", key, ": ", function_extractor[key].call(car))
+				if options[key]["once"]:
+					break
+	
 	
 	return generation_string

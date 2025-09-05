@@ -22,22 +22,31 @@ var camera_follow = false            # Se a câmera está seguindo este carro
 #CONTROLS AND AI
 @export var is_player = false        # Se este carro é controlado pelo jogador
 @export var use_ai = true            # Se este carro é controlado por IA
+var car_data = CarData.new()
 var control_module
 var brain: MLP
 var total_speed = 0.0
-var time_alive = 0.0
-var fitness = 0.0
+var time_alive: float:
+	get():
+		return self.car_data.time_alive
+	set(value):
+		self.car_data.time_alive
+var fitness: float:
+	get():
+		return self.car_data.fitness
+	set(value):
+		self.car_data.fitness = value
 var origin_position: Vector2
 var max_distance = 0.0
 var last_position: Vector2
 
-func _to_string() -> String:
-	return str("\ntime_alive: ", self.time_alive, "\ncrashed: ", self.crashed, "\nis_player: ", self.is_player, "\nmax_distance: ", self.max_distance, "\nuse_ai: ", self.use_ai)
+# SIGNALS AND EVENTS
+signal car_death
+signal car_spawn
 
-func get_average_speed():
-	return total_speed / time_alive if time_alive > 0.0 else 0.0
 
-func _ready() -> void:
+func _on_spawn():
+	self.car_data.timestamp_spawn = GameManager.global_time
 	var origin_node = get_tree().get_root().get_node("TrackScene/track/TrackOrigin")
 	last_position = global_position
 	RaceProgressionManager.register_car(self)
@@ -45,8 +54,30 @@ func _ready() -> void:
 		origin_position = origin_node.global_position
 	else:
 		origin_position = global_position  # fallback: posição inicial
-	if use_ai:
-		brain = MLP.new(5, 8, 2) # 5 sensores, 8 neurônios ocultos, 2 saídas (steering, throttle)
+
+func _on_death():
+	car_data.timestamp_death = GameManager.global_time
+	$Sprite2D.modulate.a = 0.3
+	set_physics_process(false)
+	crashed = true
+
+func _on_cross_checkpoint(checkpoint):
+	self.car_data.collected_checkpoints.append(checkpoint)
+
+func _to_string() -> String:
+	return str("\ntime_alive: ", self.time_alive, "\ncrashed: ", self.crashed, "\nis_player: ", self.is_player, "\nmax_distance: ", self.max_distance, "\nuse_ai: ", self.use_ai)
+
+func get_average_speed():
+	return total_speed / time_alive if time_alive > 0.0 else 0.0
+
+func collect_telemetry():
+	self.top_speed = velocity.length()
+
+func _ready() -> void:
+	car_spawn.connect(_on_spawn)
+	car_death.connect(_on_death)
+	car_spawn.emit()
+
 
 func _physics_process(delta: float) -> void:
 	handle_input()
@@ -67,7 +98,6 @@ func _physics_process(delta: float) -> void:
 		max_distance = dist
 	
 	total_speed += velocity.length()
-	time_alive += delta
 	
 	for i in get_slide_collision_count():
 		var collision = get_slide_collision(i)
@@ -135,6 +165,4 @@ func get_sensor_data() -> Array:
 	return data
 
 func die():
-	$Sprite2D.modulate.a = 0.3
-	set_physics_process(false)
-	crashed = true
+	car_death.emit()

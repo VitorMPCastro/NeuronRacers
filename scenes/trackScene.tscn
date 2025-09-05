@@ -3,10 +3,10 @@
 [ext_resource type="Texture2D" uid="uid://cfcacdjaxwwi8" path="res://assets/misc/asphalt_2.png" id="1_5oo0w"]
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
 [ext_resource type="PackedScene" uid="uid://d4amq4tvfwyjq" path="res://scenes/checkpoint.tscn" id="2_ujoo2"]
-[ext_resource type="Script" uid="uid://ca20qk44hdbk0" path="res://scripts/cameraScript.gd" id="3_5oo0w"]
-[ext_resource type="Script" uid="uid://cl7j5uca4c7rt" path="res://scripts/gameManager.gd" id="3_fk43m"]
-[ext_resource type="Script" uid="uid://uydiwf60ene3" path="res://scripts/agentManager.gd" id="4_3kn1h"]
-[ext_resource type="Script" uid="uid://orhx38b6607j" path="res://scripts/race_progression_manager.gd" id="5_bpni2"]
+[ext_resource type="Script" uid="uid://ca20qk44hdbk0" path="res://scripts/controls/cameraScript.gd" id="3_5oo0w"]
+[ext_resource type="Script" uid="uid://cl7j5uca4c7rt" path="res://scripts/manager/gameManager.gd" id="3_fk43m"]
+[ext_resource type="Script" uid="uid://uydiwf60ene3" path="res://scripts/manager/agentManager.gd" id="4_3kn1h"]
+[ext_resource type="Script" uid="uid://orhx38b6607j" path="res://scripts/manager/raceProgressionManager.gd" id="5_bpni2"]
 [ext_resource type="Script" uid="uid://bmlt1pbx6klra" path="res://scripts/input_system/inputManager.gd" id="7_f3i7v"]
 [ext_resource type="Script" uid="uid://cctkukw41idmq" path="res://scripts/input_system/inputContext.gd" id="8_dsgpv"]
 [ext_resource type="Resource" uid="uid://dl621ckkmjlg8" path="res://assets/input/contexts/trackMode.tres" id="9_tmu72"]
@@ -213,3 +213,4 @@ contexts_intake = Array[ExtResource("8_dsgpv")]([ExtResource("9_tmu72")])
 
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("3_5oo0w")
+min_zoom = 0.02

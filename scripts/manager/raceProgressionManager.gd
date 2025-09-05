@@ -46,7 +46,7 @@ static func update_car_progress(car: Node, old_pos: Vector2, new_pos: Vector2):
 
 	var current_index = car_progress[car]["index"]
 	if current_index >= checkpoints.size():
-		return # já passou de todos os checkpoints
+		car_progress[car]["index"] = 0
 
 	var cp = checkpoints[current_index]
 	var crossed = Utils.segments_intersect(old_pos, new_pos, cp[0], cp[1])
