@@ -104,7 +104,7 @@ func update_car_fitness():
 	for car in cars:
 		if car:
 			kill_stagnant_car(car)
-			car.fitness = RaceProgressionManager.car_progress[car]["checkpoints"]*2 + (1000/RaceProgressionManager.get_distance_to_next_checkpoint(car))
+			car.fitness = (car.get_average_speed() / 1000)/(RaceProgressionManager.get_distance_to_next_checkpoint(car) - (car.time_alive / 1000))
 
 func get_best_speed():
 	for car in cars:

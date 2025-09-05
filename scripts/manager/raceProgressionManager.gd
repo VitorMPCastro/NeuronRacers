@@ -10,6 +10,7 @@ static var checkpoints: Array = []
 # Progresso de cada carro: {car: {index: int, checkpoints: int}}
 static var car_progress: Dictionary = {}
 
+var sector: Dictionary = {}
 
 func _ready():
 	_cache_checkpoints()

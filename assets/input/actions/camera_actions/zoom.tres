@@ -1,14 +1,36 @@
-[gd_resource type="Resource" script_class="Action" load_steps=2 format=3 uid="uid://dcl115yy4wcib"]
+[gd_resource type="Resource" script_class="Action" load_steps=6 format=3 uid="uid://dcl115yy4wcib"]
 
 [ext_resource type="Script" uid="uid://d2ovrrr5woa43" path="res://scripts/input_system/action.gd" id="1_jvqfs"]
 
+[sub_resource type="InputEventMouseButton" id="InputEventMouseButton_jvqfs"]
+button_mask = 16
+position = Vector2(207, 22)
+global_position = Vector2(216, 70)
+button_index = 5
+pressed = true
+
+[sub_resource type="InputEventKey" id="InputEventKey_lruav"]
+device = -1
+keycode = 4194322
+
+[sub_resource type="InputEventMouseButton" id="InputEventMouseButton_me7f5"]
+button_mask = 8
+position = Vector2(381, 23)
+global_position = Vector2(390, 71)
+button_index = 4
+pressed = true
+
+[sub_resource type="InputEventKey" id="InputEventKey_kx3rg"]
+device = -1
+keycode = 4194320
+
 [resource]
 script = ExtResource("1_jvqfs")
-name = "PLACEHOLDER"
-action_type = 0
+action_name = "Camera Zoom"
+action_type = 1
 cooldown = 0.0
 is_hold = false
-keys_button = Array[InputEvent]([])
-keys_axis_pos = Array[InputEvent]([])
-keys_axis_neg = Array[InputEvent]([])
+input_button = Array[InputEvent]([])
+input_axis_pos = Array[InputEvent]([SubResource("InputEventMouseButton_me7f5"), SubResource("InputEventKey_kx3rg")])
+input_axis_neg = Array[InputEvent]([SubResource("InputEventMouseButton_jvqfs"), SubResource("InputEventKey_lruav")])
 metadata/_custom_type_script = "uid://d2ovrrr5woa43"

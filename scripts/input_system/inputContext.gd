@@ -2,10 +2,16 @@ extends Resource
 class_name InputContext
 
 @export var context_name: String = "Default"	# Context name
-@export var actions: Array[Action] = []					# Array of Action resources
+@export var actions_intake: Array[Action] = []					# Array of Action resources
+var actions: Dictionary[String, Action] = {}
+
+func _ready() -> void:
+	for action in actions_intake:
+		if action:
+			actions[action.action_name] = action
 
 func get_action_by_name(action_name: String) -> Action:
-	for action in actions:
-		if action.name == action_name:
-			return action
-	return null
+	print(str("name: ", action_name, "\naction: ", actions[action_name]))
+	if not actions.has(action_name):
+		return null
+	return actions[action_name]

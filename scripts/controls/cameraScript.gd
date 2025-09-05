@@ -21,6 +21,8 @@ func _physics_process(delta: float) -> void:
 		target_best()
 
 func _input(event: InputEvent) -> void:
+	if InputManager.get_active_action("Always Track Best Car"):
+		always_target_best = not always_target_best
 	
 	#action is somehow called here and only here (e.g) pressing spacebar in a context where tracking the best car does not matter will not trigger unintended behaviour
 	

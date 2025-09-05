@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="Action" load_steps=3 format=3 uid="uid://fidjaod8tskd"]
+
+[ext_resource type="Script" uid="uid://d2ovrrr5woa43" path="res://scripts/input_system/action.gd" id="1_bifw3"]
+
+[sub_resource type="InputEventKey" id="InputEventKey_bifw3"]
+device = -1
+keycode = 82
+unicode = 114
+
+[resource]
+script = ExtResource("1_bifw3")
+action_name = "Track Random Car"
+action_type = 0
+cooldown = 0.0
+is_hold = false
+input_button = Array[InputEvent]([SubResource("InputEventKey_bifw3")])
+input_axis_pos = Array[InputEvent]([])
+input_axis_neg = Array[InputEvent]([])
+metadata/_custom_type_script = "uid://d2ovrrr5woa43"

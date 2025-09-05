@@ -1,14 +1,19 @@
-[gd_resource type="Resource" script_class="Action" load_steps=2 format=3 uid="uid://bks2smohorjl6"]
+[gd_resource type="Resource" script_class="Action" load_steps=3 format=3 uid="uid://duy7pm155xna0"]
 
 [ext_resource type="Script" uid="uid://d2ovrrr5woa43" path="res://scripts/input_system/action.gd" id="1_xqxtj"]
 
+[sub_resource type="InputEventKey" id="InputEventKey_xqxtj"]
+device = -1
+keycode = 66
+unicode = 98
+
 [resource]
 script = ExtResource("1_xqxtj")
-name = "Always Track Best Car Toggle"
-action_type = 1
-cooldown = 3.0
+action_name = "Track Best Car"
+action_type = 0
+cooldown = 0.0
 is_hold = false
-keys_button = Array[InputEvent]([])
-keys_axis_pos = Array[InputEvent]([])
-keys_axis_neg = Array[InputEvent]([])
+input_button = Array[InputEvent]([SubResource("InputEventKey_xqxtj")])
+input_axis_pos = Array[InputEvent]([])
+input_axis_neg = Array[InputEvent]([])
 metadata/_custom_type_script = "uid://d2ovrrr5woa43"
