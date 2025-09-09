@@ -17,4 +17,5 @@ var time_alive: float:
 		return (GameManager.global_time if timestamp_death == -1.0 else timestamp_death) - timestamp_spawn
 
 var fitness: float = 0.0
-var collected_checkpoints: Array = []
+var collected_checkpoints: Array
+var sector_times
