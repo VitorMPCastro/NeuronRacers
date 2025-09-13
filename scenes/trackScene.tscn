@@ -202,10 +202,12 @@ population_size = 100
 generation_time = 30.0
 is_training = true
 elitism_percent = 0.1
+weight = 0.3
+mutate_chance = 0.2
 
 [node name="RaceProgressionManager" type="Node2D" parent="GameManager"]
 script = ExtResource("5_bpni2")
-checkpoint_nodes = Array[NodePath]([NodePath("../../track/Checkpoints/Checkpoint"), NodePath("../../track/Checkpoints/Checkpoint2"), NodePath("../../track/Checkpoints/Checkpoint3"), NodePath("../../track/Checkpoints/Checkpoint4"), NodePath("../../track/Checkpoints/Checkpoint5"), NodePath("../../track/Checkpoints/Checkpoint6"), NodePath("../../track/Checkpoints/Checkpoint7"), NodePath("../../track/Checkpoints/Checkpoint8"), NodePath("../../track/Checkpoints/Checkpoint9"), NodePath("../../track/Checkpoints/Checkpoint10"), NodePath("../../track/Checkpoints/Checkpoint11"), NodePath("../../track/Checkpoints/Checkpoint12"), NodePath("../../track/Checkpoints/Checkpoint13"), NodePath("../../track/Checkpoints/Checkpoint14"), NodePath("../../track/Checkpoints/Checkpoint15"), NodePath("../../track/Checkpoints/Checkpoint16"), NodePath("../../track/Checkpoints/Checkpoint17"), NodePath("../../track/Checkpoints/Checkpoint18"), NodePath("../../track/Checkpoints/Checkpoint19"), NodePath("../../track/Checkpoints/Checkpoint20"), NodePath("../../track/Checkpoints/Checkpoint21"), NodePath("../../track/Checkpoints/Checkpoint22"), NodePath("../../track/Checkpoints/Checkpoint23"), NodePath("../../track/Checkpoints/Checkpoint24"), NodePath("../../track/Checkpoints/Checkpoint25"), NodePath("../../track/Checkpoints/Checkpoint26"), NodePath("../../track/Checkpoints/Checkpoint27"), NodePath("../../track/Checkpoints/Checkpoint28"), NodePath("../../track/Checkpoints/Checkpoint29"), NodePath("../../track/Checkpoints/Checkpoint30"), NodePath("../../track/Checkpoints/Checkpoint31"), NodePath("../../track/Checkpoints/Checkpoint32"), NodePath("../../track/Checkpoints/Checkpoint33"), NodePath("../../track/Checkpoints/Checkpoint34"), NodePath("../../track/Checkpoints/Checkpoint35"), NodePath("../../track/Checkpoints/Checkpoint36"), NodePath("../../track/Checkpoints/Checkpoint37"), NodePath("../../track/Checkpoints/Checkpoint38"), NodePath("../../track/Checkpoints/Checkpoint39")])
+checkpoint_nodes = Array[NodePath]([NodePath("../../track/Checkpoints/Checkpoint6"), NodePath("../../track/Checkpoints/Checkpoint13"), NodePath("../../track/Checkpoints/Checkpoint26"), NodePath("../../track/Checkpoints/Checkpoint33")])
 
 [node name="InputManager" type="Node" parent="GameManager"]
 script = ExtResource("7_f3i7v")
