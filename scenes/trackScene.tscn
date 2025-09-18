@@ -63,8 +63,8 @@ position = Vector2(5784, -224)
 rotation = 1.5708
 
 [node name="Checkpoint6" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(6754, -293)
-rotation = 1.09258
+position = Vector2(6638, -555)
+rotation = 0.785398
 
 [node name="Checkpoint7" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
 position = Vector2(6988, -1194)
@@ -85,7 +85,7 @@ position = Vector2(7009, -5250)
 position = Vector2(7012, -6548)
 
 [node name="Checkpoint13" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(6940, -7332)
+position = Vector2(6584, -6991)
 rotation = -0.785398
 
 [node name="Checkpoint14" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
@@ -137,7 +137,7 @@ position = Vector2(-4822, -7335)
 rotation = -1.5708
 
 [node name="Checkpoint26" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6113, -7297)
+position = Vector2(-5970, -7072)
 rotation = -2.35619
 
 [node name="Checkpoint27" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
@@ -165,7 +165,7 @@ position = Vector2(-6282, -1525)
 rotation = -3.14159
 
 [node name="Checkpoint33" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6214, -663)
+position = Vector2(-5961, -628)
 rotation = -3.92699
 
 [node name="Checkpoint34" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
@@ -204,6 +204,7 @@ is_training = true
 elitism_percent = 0.1
 weight = 0.3
 mutate_chance = 0.2
+input_layer_neurons = 6
 
 [node name="RaceProgressionManager" type="Node2D" parent="GameManager"]
 script = ExtResource("5_bpni2")

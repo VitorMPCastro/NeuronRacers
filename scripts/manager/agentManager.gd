@@ -116,7 +116,7 @@ func get_best_speed():
 
 func kill_stagnant_car(car):
 	var grace_period = 3.0
-	if car.get_average_speed() < AgentManager.best_speed * 0.25 && grace_period < car.time_alive:
+	if car.get_average_speed() < AgentManager.best_speed * 0.5 && grace_period < car.time_alive:
 		car.die()
 
 func sort_by_fitness():
