@@ -32,19 +32,19 @@ shape = SubResource("CircleShape2D_k55xp")
 [node name="RayParent" type="Node2D" parent="."]
 
 [node name="RayCast2D" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(0, -500)
+target_position = Vector2(0, -1000)
 
 [node name="RayCast2D2" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(0, 500)
+target_position = Vector2(0, 1000)
 
 [node name="RayCast2D3" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(400, -400)
+target_position = Vector2(800, -800)
 
 [node name="RayCast2D4" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(400, 400)
+target_position = Vector2(800, 800)
 
 [node name="RayCast2D5" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(800, 0)
+target_position = Vector2(2400, 0)
 
 [node name="RayCast2D6" type="RayCast2D" parent="RayParent"]
-target_position = Vector2(-800, 0)
+target_position = Vector2(-2400, 0)

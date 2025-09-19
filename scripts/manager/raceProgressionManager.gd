@@ -6,6 +6,7 @@ class_name RaceProgressionManager
 
 # Lista de pares de pontos que formam os segmentos dos checkpoints
 static var checkpoints: Array = []
+static var sectors: Array[Sector]
 
 # Progresso de cada carro: {car: {index: int, checkpoints: int}}
 static var car_progress: Dictionary = {}
@@ -14,6 +15,7 @@ var sector: Dictionary = {}
 
 func _ready():
 	_cache_checkpoints()
+	print(checkpoints.size())
 
 
 func _cache_checkpoints():
@@ -34,7 +36,8 @@ static func register_car(car: Node):
 	"""
 	car_progress[car] = {
 		"index": 0,
-		"checkpoints": 0
+		"checkpoints": 0,
+		"time_collected": 0.0
 	}
 
 
@@ -46,7 +49,7 @@ static func update_car_progress(car: Node, old_pos: Vector2, new_pos: Vector2):
 		return
 
 	var current_index = car_progress[car]["index"]
-	if current_index >= checkpoints.size():
+	if current_index >= checkpoints.size()-1:
 		car_progress[car]["index"] = 0
 
 	var cp = checkpoints[current_index]
@@ -55,6 +58,9 @@ static func update_car_progress(car: Node, old_pos: Vector2, new_pos: Vector2):
 	if crossed:
 		car_progress[car]["index"] += 1
 		car_progress[car]["checkpoints"] += 1
+		car_progress[car]["time_collected"] = GameManager.global_time
+		car.car_data.collected_checkpoints.append(car_progress[car].duplicate())
+		print('Checkpoint crossed')
 	
 
 

@@ -15,7 +15,7 @@ func _physics_process(delta: float) -> void:
 	if target:
 		global_position = target.global_position
 	
-	if always_target_best && camera_change_cd_tracker > camera_change_cd:
+	if always_target_best:
 
 		camera_change_cd_tracker = 0
 		target_best()
@@ -32,7 +32,7 @@ func _input(event: InputEvent) -> void:
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
 			adjust_zoom(-zoom_speed)
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			target_random()
+			always_target_best = true
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			target_best()
 

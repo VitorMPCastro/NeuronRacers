@@ -104,7 +104,7 @@ func update_car_fitness():
 	for car in cars:
 		if car:
 			kill_stagnant_car(car)
-			car.fitness = (car.get_average_speed() / 1000)/(RaceProgressionManager.get_distance_to_next_checkpoint(car) - (car.time_alive / 1000))
+			car.fitness = (1000/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
 
 func get_best_speed():
 	for car in cars:
@@ -116,7 +116,7 @@ func get_best_speed():
 
 func kill_stagnant_car(car):
 	var grace_period = 3.0
-	if car.get_average_speed() < AgentManager.best_speed * 0.25 && grace_period < car.time_alive:
+	if car.get_average_speed() < AgentManager.best_speed * 0.5 && grace_period < car.time_alive:
 		car.die()
 
 func sort_by_fitness():
