@@ -1,15 +1,12 @@
-[gd_resource type="Resource" script_class="InputContext" load_steps=7 format=3 uid="uid://dl621ckkmjlg8"]
+[gd_resource type="Resource" script_class="InputContext" load_steps=4 format=3 uid="uid://dl621ckkmjlg8"]
 
 [ext_resource type="Script" uid="uid://d2ovrrr5woa43" path="res://scripts/input_system/action.gd" id="1_5odlx"]
 [ext_resource type="Script" uid="uid://cctkukw41idmq" path="res://scripts/input_system/inputContext.gd" id="1_mg287"]
 [ext_resource type="Resource" uid="uid://bks2smohorjl6" path="res://assets/input/actions/camera_actions/alwaysTrackBestCar.tres" id="2_eg8a1"]
-[ext_resource type="Resource" uid="uid://duy7pm155xna0" path="res://assets/input/actions/camera_actions/trackBestCar.tres" id="2_p8tkb"]
-[ext_resource type="Resource" uid="uid://dcl115yy4wcib" path="res://assets/input/actions/camera_actions/zoom.tres" id="3_ou48q"]
-[ext_resource type="Resource" uid="uid://fidjaod8tskd" path="res://assets/input/actions/camera_actions/trackRandomCar.tres" id="5_8cy2u"]
 
 [resource]
 resource_name = "Track Mode"
 script = ExtResource("1_mg287")
 context_name = "Track Mode"
-actions_intake = Array[ExtResource("1_5odlx")]([ExtResource("2_eg8a1"), ExtResource("2_p8tkb"), ExtResource("5_8cy2u"), ExtResource("3_ou48q")])
+actions_intake = Array[ExtResource("1_5odlx")]([ExtResource("2_eg8a1")])
 metadata/_custom_type_script = "uid://cctkukw41idmq"

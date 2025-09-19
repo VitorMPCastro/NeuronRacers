@@ -58,17 +58,31 @@ func spawn_population(brains: Array = []):
 		cars.append(car)
 	
 	print("População criada: ", cars.size())
+	
+func weighted_pick(cars: Array, total_fitness) -> Car:
+	var r = randf() * total_fitness
+	var cumulative = 0.0
+	for car in cars:
+		cumulative += car.fitness
+		if r <= cumulative:
+			return car
+	return cars[-1]  # fallback in case of float precision issues
 
 func next_generation():
 	generation += 1
 	print("Geração: ", generation)
 	var elites = int(population_size * elitism_percent)
+	sort_by_fitness()
 	best_cars = cars.slice(0, elites)
+	
+	var total_fitness := 0.0
+	for car in best_cars:
+		total_fitness += car.fitness
 	
 	sort_by_fitness()
 	var new_brains: Array = []
 	for i in range(population_size):
-		var parent = best_cars[randi() % best_cars.size()]
+		var parent = weighted_pick(best_cars, total_fitness)
 		var brain = mutate(parent.brain)
 		new_brains.append(brain)
 	
@@ -104,7 +118,7 @@ func update_car_fitness():
 	for car in cars:
 		if car:
 			kill_stagnant_car(car)
-			car.fitness = (1000/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
+			car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
 
 func get_best_speed():
 	for car in cars:
@@ -116,7 +130,7 @@ func get_best_speed():
 
 func kill_stagnant_car(car):
 	var grace_period = 3.0
-	if car.get_average_speed() < AgentManager.best_speed * 0.5 && grace_period < car.time_alive:
+	if car.get_average_speed() < AgentManager.best_speed * 0.4 && grace_period < car.time_alive:
 		car.die()
 
 func sort_by_fitness():
