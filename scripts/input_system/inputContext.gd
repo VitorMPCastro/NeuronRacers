@@ -11,7 +11,6 @@ func _ready() -> void:
 			actions[action.action_name] = action
 
 func get_action_by_name(action_name: String) -> Action:
-	print(actions_intake)
 	if not actions.has(action_name):
 		return null
 	return actions[action_name]

@@ -60,7 +60,6 @@ static func update_car_progress(car: Node, old_pos: Vector2, new_pos: Vector2):
 		car_progress[car]["checkpoints"] += 1
 		car_progress[car]["time_collected"] = GameManager.global_time
 		car.car_data.collected_checkpoints.append(car_progress[car].duplicate())
-		print('Checkpoint crossed')
 	
 
 
