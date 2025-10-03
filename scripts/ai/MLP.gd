@@ -13,10 +13,10 @@ var b2: PackedFloat32Array
 func _to_string() -> String:
 	return str("\ninput: ", input_size, "\nhidden: ", hidden_size, "\noutput: ", output_size, "\nw1: ", w1, "\nb1: ", b1, "\nw2: ", w2, "\nb2: ", b2)
  
-func _init(input_size: int, hidden_size: int, output_size: int):
-	self.input_size = input_size
-	self.hidden_size = hidden_size
-	self.output_size = output_size
+func _init(p_input_size: int, p_hidden_size: int, p_output_size: int):
+	self.input_size = p_input_size
+	self.hidden_size = p_hidden_size
+	self.output_size = p_output_size
 	
 	# Inicializa pesos com valores aleatórios
 	w1 = PackedFloat32Array()
@@ -53,7 +53,7 @@ func forward(inputs: Array) -> Array:
 	return outputs
 
 func clone() -> MLP:
-	var copy = MLP.new(input_size, hidden_size, output_size)
+	var copy = MLP.new(self.input_size, self.hidden_size, self.output_size)
 	
 	copy.w1 = w1.duplicate()
 	copy.b1 = b1.duplicate()
