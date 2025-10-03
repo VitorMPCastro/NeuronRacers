@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=4 uid="uid://dds42avibdl3k"]
+[gd_scene load_steps=15 format=4 uid="uid://dds42avibdl3k"]
 
 [ext_resource type="Texture2D" uid="uid://cfcacdjaxwwi8" path="res://assets/misc/asphalt_2.png" id="1_5oo0w"]
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" uid="uid://bmlt1pbx6klra" path="res://scripts/input_system/inputManager.gd" id="7_f3i7v"]
 [ext_resource type="Script" uid="uid://cctkukw41idmq" path="res://scripts/input_system/inputContext.gd" id="8_dsgpv"]
 [ext_resource type="Resource" uid="uid://dl621ckkmjlg8" path="res://assets/input/contexts/trackMode.tres" id="9_tmu72"]
+[ext_resource type="Script" uid="uid://bywd18j48kii4" path="res://scripts/manager/trackManager.gd" id="10_tmu72"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_bpni2"]
 texture = ExtResource("1_5oo0w")
@@ -25,6 +26,12 @@ tile_size = Vector2i(64, 64)
 physics_layer_0/collision_layer = 1
 physics_layer_0/collision_mask = 3
 sources/0 = SubResource("TileSetAtlasSource_bpni2")
+
+[sub_resource type="Curve2D" id="Curve2D_dsgpv"]
+_data = {
+"points": PackedVector2Array(0, 0, 0, 0, -1, -4, -120.962, 3.00526, 120.962, -3.00526, 444, -4, 12.7724, 43.5763, -12.7724, -43.5763, 457, -125, -32.4018, 35.9841, 32.4018, -35.9841, 518, -206, 123.42, 49.61, -123.42, -49.61, 475, -436, 38.4904, 6.10461, -38.4904, -6.10461, -109, -557, -18.5422, -65.4251, 18.5422, 65.4251, -181, -415, -26.6996, -38.4971, 26.6996, 38.4971, 12, -268, 23.595, -18.6276, -23.595, 18.6276, 2, -176, 12.1803, 31.4193, -12.1803, -31.4193, -138, -149, 32.9088, 21.7322, -32.9088, -21.7322, -130, -237, 46.5691, -22.3532, -46.5691, 22.3532, -225, -213, 10.144, 34.9741, -10.144, -34.9741, -354, -190, 10.5557, 42.2226, -10.5557, -42.2226, -236, -318, 52.03, -19.36, -52.03, 19.36, -449, -429, -7.26, -58.08, 7.26, 58.08, -540, -264, -52.03, -64.13, 52.03, 64.13, -449, -81, 0, 0, 0, 0, -230, -8, 0, 0, 0, 0, -1, -4)
+}
+point_count = 19
 
 [node name="TrackScene" type="Node2D"]
 
@@ -213,6 +220,14 @@ checkpoint_nodes = Array[NodePath]([NodePath("../../track/Checkpoints/Checkpoint
 [node name="InputManager" type="Node" parent="GameManager"]
 script = ExtResource("7_f3i7v")
 contexts_intake = Array[ExtResource("8_dsgpv")]([ExtResource("9_tmu72")])
+
+[node name="TrackManager" type="Node2D" parent="GameManager"]
+script = ExtResource("10_tmu72")
+
+[node name="Path2D" type="Path2D" parent="GameManager"]
+position = Vector2(3, 75)
+scale = Vector2(29.0139, 29.0139)
+curve = SubResource("Curve2D_dsgpv")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("3_5oo0w")
