@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=4 uid="uid://dds42avibdl3k"]
+[gd_scene load_steps=14 format=4 uid="uid://dds42avibdl3k"]
 
 [ext_resource type="Texture2D" uid="uid://cfcacdjaxwwi8" path="res://assets/misc/asphalt_2.png" id="1_5oo0w"]
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" uid="uid://bmlt1pbx6klra" path="res://scripts/input_system/inputManager.gd" id="7_f3i7v"]
 [ext_resource type="Script" uid="uid://cctkukw41idmq" path="res://scripts/input_system/inputContext.gd" id="8_dsgpv"]
 [ext_resource type="Resource" uid="uid://dl621ckkmjlg8" path="res://assets/input/contexts/trackMode.tres" id="9_tmu72"]
+[ext_resource type="Script" uid="uid://b8bno0lhtpdgv" path="res://scripts/ui/nngraph.gd" id="11_tmu72"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_bpni2"]
 texture = ExtResource("1_5oo0w")
@@ -217,3 +218,12 @@ contexts_intake = Array[ExtResource("8_dsgpv")]([ExtResource("9_tmu72")])
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("3_5oo0w")
 min_zoom = 0.02
+
+[node name="NeuralNetworkGraph" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 4589.0
+offset_top = 1022.0
+offset_right = 4629.0
+offset_bottom = 1062.0
+script = ExtResource("11_tmu72")

@@ -74,6 +74,7 @@ func collect_telemetry():
 	self.top_speed = velocity.length()
 
 func _ready() -> void:
+	add_to_group("cars")  # For NN graph lookup
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
 	car_spawn.emit()
