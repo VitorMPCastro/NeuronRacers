@@ -8,8 +8,21 @@ var border_texture_a: Texture2D = null
 var border_texture_b: Texture2D = null
 var polygon_node: Polygon2D = null
 var length: float = 0.0
-var debug_show_lines: bool = false
-var debug_show_polygons: bool = false
+var center_line: Line2D = null
+var left_line: Line2D = null
+var right_line: Line2D = null
+var curb_right: Line2D = null
+var curb_left: Line2D = null
+var asphalt: Array[Polygon2D] = []
+var track_limits_left: Array[Polygon2D] = []
+var track_limits_right: Array[Polygon2D] = []
+
+# signal
+signal track_built
+
+func _ready() -> void:
+	# Connect the track_built signal to the TrackManager
+	track_built.connect(get_parent().get_node("TrackManager")._on_track_built)
 
 # Convenience helper to free the generated polygon
 func free_polygon() -> void:
@@ -135,33 +148,88 @@ func draw_quads_between_lines(line1: Line2D, line2: Line2D, texture: Texture2D =
 
 # Static builder that generates a track polygon around a Path2D.
 # Returns a Track or null on failure.
-func build_from_path(path: Path2D, width: float = 128.0, tex: Texture2D = null, sample_step: float = 32.0, use_cubic_sampling: bool = false, treat_as_loop: bool = true, z_index: int = 1000) -> Track:
+func build_from_path(path: Path2D, width: float = 128.0, curb_thickness: float = 8.0, tex: Texture2D = null, sample_step: float = 32.0, use_cubic_sampling: bool = false, treat_as_loop: bool = true, z_index: int = 1000) -> Track:
 	if path == null:
 		push_error("Track.build_from_path: path is null")
 		return null
 
-	var half := width/2
-	var poly_points := PackedVector2Array([
-		Vector2(-half, -half),
-		Vector2( half, -half),
-		Vector2( half,  half),
-		Vector2(-half,  half),
-	])
+	center_line = self.draw_centerline(path, sample_step, Color(1, 0, 0, 0), 0.0, use_cubic_sampling)
+	left_line = self.draw_offset_from_line(center_line, -width / 2, 0.0)
+	right_line = self.draw_offset_from_line(center_line, width / 2, 0.0)
+	curb_left = self.draw_offset_from_line(left_line, -curb_thickness, 0.0, Color(1, 1, 1, 1))
+	curb_right = self.draw_offset_from_line(right_line, curb_thickness, 0.0, Color(1, 1, 1, 1))
 
-	var poly_node := Polygon2D.new()
-	poly_node.polygon = poly_points
-	if tex:
-		poly_node.texture = tex
-	poly_node.z_as_relative = false
-	poly_node.z_index = z_index
-	poly_node.modulate = Color(1, 0, 0, 1)
-	poly_node.name = "DebugSquare1000"
+	if !is_instance_valid(center_line) or !is_instance_valid(left_line) or !is_instance_valid(right_line):
+		push_error("Track.build_from_path: failed to create center or offset lines")
+		return null
 
-	# Place at the Path2D's origin by parenting under it (local coords).
-	path.add_child(poly_node)
-	poly_node.owner = path.owner
 
-	# Length is arbitrary for this debug square; set to perimeter or 0.
-	self.polygon_node = poly_node
-	self.track_width = width
+	track_limits_left = self.draw_quads_between_lines(curb_left, left_line)
+	track_limits_right = self.draw_quads_between_lines(right_line, curb_right)
+
+	add_collision_to_polygons(track_limits_left)
+	add_collision_to_polygons(track_limits_right)
+
+	track_built.emit()
+
+
 	return self
+
+func toggle_show_lines(debug_show_lines: bool) -> void:
+	print("Track.toggle_show_lines: ", debug_show_lines)
+	print(" center_line: ", is_instance_valid(center_line))
+	print(" left_line: ", is_instance_valid(left_line))
+	print(" right_line: ", is_instance_valid(right_line))
+	print(" curb_left: ", is_instance_valid(curb_left))
+	print(" curb_right: ", is_instance_valid(curb_right))
+	if is_instance_valid(center_line):
+		center_line.visible = debug_show_lines
+		center_line.width = 4.0 if debug_show_lines else 0.0
+		center_line.default_color = Color(1, 0, 0, 1) if debug_show_lines else Color(0, 0, 0, 0)
+	if is_instance_valid(left_line):
+		left_line.visible = debug_show_lines
+		left_line.width = 2.0 if debug_show_lines else 0.0
+		left_line.default_color = Color(0, 0, 1, 1) if debug_show_lines else Color(0, 0, 0, 0)
+	if is_instance_valid(right_line):
+		right_line.visible = debug_show_lines
+		right_line.width = 2.0 if debug_show_lines else 0.0
+		right_line.default_color = Color(0, 1, 0, 1) if debug_show_lines else Color(0, 0, 0, 0)
+	if is_instance_valid(curb_left):
+		curb_left.visible = debug_show_lines
+		curb_left.width = 2.0 if debug_show_lines else 0.0
+		curb_left.default_color = Color(1, 1, 1, 1) if debug_show_lines else Color(0, 0, 0, 0)
+	if is_instance_valid(curb_right):
+		curb_right.visible = debug_show_lines
+		curb_right.width = 2.0 if debug_show_lines else 0.0
+		curb_right.default_color = Color(1, 1, 1, 1) if debug_show_lines else Color(0, 0, 0, 0)
+
+func add_collision_to_polygons(polygons: Array[Polygon2D]) -> void:
+	for poly in polygons:
+		if !is_instance_valid(poly):
+			continue
+
+		# Create a StaticBody2D as the collision owner
+		var body := StaticBody2D.new()
+		body.name = "%s_StaticBody2D" % poly.name
+		# Place it alongside the visual polygon so transforms match
+		var parent := poly.get_parent()
+		parent.add_child(body)
+		body.owner = parent.owner
+		# Copy transform (if your polygons have local transforms)
+		body.position = poly.position
+		body.rotation = poly.rotation
+		body.scale = poly.scale
+
+		# Configure collision layers/masks:
+		# Walls on layer 1, collide with layer 2 (cars)
+		body.collision_layer = 0
+		body.collision_mask = 0
+		body.set_collision_layer_value(1, true) # this object is on layer 1
+		body.set_collision_mask_value(2, true)  # it collides with layer 2
+
+		# Add shape
+		var coll := CollisionPolygon2D.new()
+		coll.polygon = poly.polygon
+		body.add_child(coll)
+		coll.owner = body.owner
+		coll.disabled = false
