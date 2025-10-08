@@ -13,7 +13,7 @@ var target: Node2D = null
 func _physics_process(delta: float) -> void:
 	
 	if target:
-		lerp(global_position, target.global_position, 0.1)
+		global_position = target.global_position
 	
 	if always_target_best:
 

@@ -11,9 +11,15 @@ config_version=5
 [application]
 
 config/name="Neuron Racers"
-run/main_scene="uid://dds42avibdl3k"
+run/main_scene="uid://b034ouy7crnak"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1536
+window/size/viewport_height=864
+window/size/borderless=true
 
 [layer_names]
 

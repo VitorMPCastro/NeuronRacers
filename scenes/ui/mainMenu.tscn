@@ -1,0 +1,40 @@
+[gd_scene load_steps=4 format=3 uid="uid://b034ouy7crnak"]
+
+[ext_resource type="Script" uid="uid://cmoo5j5v5n7tx" path="res://scripts/ui/main_menu.gd" id="1_j3ryx"]
+[ext_resource type="Theme" uid="uid://c8til66hugmgn" path="res://assets/ui/themes/mainMenuTheme.tres" id="2_c8enf"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_c7uy4"]
+font_size = 64
+
+[node name="MainMenu" type="CenterContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_j3ryx")
+
+[node name="PanelContainer" type="PanelContainer" parent="."]
+layout_mode = 2
+theme = ExtResource("2_c8enf")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/VBoxContainer"]
+layout_mode = 2
+text = "Neuron Racers"
+label_settings = SubResource("LabelSettings_c7uy4")
+
+[node name="Button" type="Button" parent="PanelContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+text = "New Game"
+
+[node name="Button2" type="Button" parent="PanelContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+text = "Quit"
+
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Button" to="." method="_on_button_play_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Button2" to="." method="_on_button_quit_pressed"]

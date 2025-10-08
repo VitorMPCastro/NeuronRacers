@@ -1,0 +1,11 @@
+[gd_resource type="Theme" load_steps=3 format=3 uid="uid://c8til66hugmgn"]
+
+[ext_resource type="StyleBox" uid="uid://3gijniao6w8d" path="res://assets/ui/themes/style_box_flat.tres" id="1_j656x"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_j656x"]
+bg_color = Color(0.929927, 0.433209, 0.201003, 1)
+
+[resource]
+default_font_size = 32
+Button/styles/hover = SubResource("StyleBoxFlat_j656x")
+PanelContainer/styles/panel = ExtResource("1_j656x")
