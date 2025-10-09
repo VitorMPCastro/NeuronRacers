@@ -18,135 +18,133 @@
 position = Vector2(13, 13)
 
 [node name="TrackOrigin" type="Node2D" parent="track"]
-position = Vector2(-17, -248)
+position = Vector2(-6, -130)
 
 [node name="Checkpoints" type="Node2D" parent="track"]
 
 [node name="Checkpoint" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(782, -230)
+position = Vector2(767, -120)
 rotation = 1.5708
 
 [node name="Checkpoint2" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(1959, -230)
+position = Vector2(2806, -203)
 rotation = 1.5708
 
 [node name="Checkpoint3" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(3271, -213)
+position = Vector2(5531, -204)
 rotation = 1.5708
 
 [node name="Checkpoint4" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(4372, -196)
+position = Vector2(10666, -176)
 rotation = 1.5708
 
 [node name="Checkpoint5" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(5784, -224)
-rotation = 1.5708
+position = Vector2(14218, -559)
 
 [node name="Checkpoint6" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(13050, -121)
-rotation = 0.785398
+position = Vector2(14488, -2211)
 
 [node name="Checkpoint7" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(6988, -1194)
+position = Vector2(13845, -4594)
 
 [node name="Checkpoint8" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(6998, -2067)
+position = Vector2(15935, -6535)
 
 [node name="Checkpoint9" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(7026, -3106)
+position = Vector2(16834, -9457)
 
 [node name="Checkpoint10" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(7002, -4128)
+position = Vector2(16135, -11715)
 
 [node name="Checkpoint11" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(7009, -5250)
+position = Vector2(13782, -13344)
+rotation = -1.39626
 
 [node name="Checkpoint12" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(7012, -6548)
+position = Vector2(9710, -14360)
+rotation = -1.39626
 
 [node name="Checkpoint13" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(15897, -12217)
-rotation = -0.785398
+position = Vector2(4628, -15449)
+rotation = -1.39626
 
 [node name="Checkpoint14" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(6095, -7335)
-rotation = -1.5708
+position = Vector2(-2237, -16575)
+rotation = -1.39626
 
 [node name="Checkpoint15" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(5287, -7338)
-rotation = -1.5708
+position = Vector2(-5074, -14894)
+rotation = -2.87979
 
 [node name="Checkpoint16" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(4362, -7331)
-rotation = -1.5708
+position = Vector2(-5247, -12061)
+rotation = -3.49066
 
 [node name="Checkpoint17" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(3357, -7331)
-rotation = -1.5708
+position = Vector2(-327, -8725)
+rotation = -4.01426
 
 [node name="Checkpoint18" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(2345, -7324)
-rotation = -1.5708
+position = Vector2(1001, -5930)
+rotation = -3.14159
 
 [node name="Checkpoint19" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(1378, -7317)
-rotation = -1.5708
+position = Vector2(333, -4031)
+rotation = -2.26893
 
 [node name="Checkpoint20" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(411, -7331)
+position = Vector2(-1351, -3335)
 rotation = -1.5708
 
 [node name="Checkpoint21" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-642, -7338)
+position = Vector2(-4080, -3325)
 rotation = -1.5708
 
 [node name="Checkpoint22" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-1705, -7331)
-rotation = -1.5708
+position = Vector2(-5368, -4158)
 
 [node name="Checkpoint23" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-2779, -7352)
-rotation = -1.5708
+position = Vector2(-4322, -5665)
+rotation = 0.785398
 
 [node name="Checkpoint24" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-3759, -7342)
-rotation = -1.5708
+position = Vector2(-4033, -7645)
+rotation = -1.0472
 
 [node name="Checkpoint25" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-4822, -7335)
-rotation = -1.5708
+position = Vector2(-6048, -7378)
+rotation = -2.26893
 
 [node name="Checkpoint26" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-2465, -16552)
-rotation = -2.35619
+position = Vector2(-8205, -5479)
+rotation = -2.26893
 
 [node name="Checkpoint27" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6311, -6487)
-rotation = -3.14159
+position = Vector2(-9636, -5271)
+rotation = -0.785398
 
 [node name="Checkpoint28" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6294, -5581)
-rotation = -3.14159
+position = Vector2(-9464, -6749)
+rotation = 0.785398
 
 [node name="Checkpoint29" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6294, -4547)
-rotation = -3.14159
+position = Vector2(-7887, -8827)
 
 [node name="Checkpoint30" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6294, -3452)
-rotation = -3.14159
+position = Vector2(-11361, -12205)
+rotation = -0.872665
 
 [node name="Checkpoint31" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6270, -2412)
-rotation = -3.14159
+position = Vector2(-14026, -12444)
+rotation = -2.26893
 
 [node name="Checkpoint32" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-6282, -1525)
-rotation = -3.14159
+position = Vector2(-15556, -5993)
+rotation = -3.49066
 
 [node name="Checkpoint33" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
-position = Vector2(-5097, -4793)
-rotation = -3.92699
+position = Vector2(-10908, -1014)
+rotation = -4.36332
 
 [node name="Checkpoint34" parent="track/Checkpoints" instance=ExtResource("2_ujoo2")]
 position = Vector2(-5376, -394)
@@ -179,7 +177,7 @@ script = ExtResource("3_fk43m")
 script = ExtResource("4_3kn1h")
 car_scene = ExtResource("2_n1x8e")
 population_size = 100
-generation_time = 30.0
+generation_time = 120.0
 is_training = true
 elitism_percent = 0.1
 weight = 0.3
@@ -188,7 +186,7 @@ input_layer_neurons = 6
 
 [node name="RaceProgressionManager" type="Node2D" parent="GameManager"]
 script = ExtResource("5_bpni2")
-checkpoint_nodes = Array[NodePath]([NodePath("../../track/Checkpoints/Checkpoint6"), NodePath("../../track/Checkpoints/Checkpoint13"), NodePath("../../track/Checkpoints/Checkpoint26"), NodePath("../../track/Checkpoints/Checkpoint33")])
+checkpoint_nodes = Array[NodePath]([NodePath("../../track/Checkpoints/Checkpoint"), NodePath("../../track/Checkpoints/Checkpoint2"), NodePath("../../track/Checkpoints/Checkpoint3"), NodePath("../../track/Checkpoints/Checkpoint4"), NodePath("../../track/Checkpoints/Checkpoint5"), NodePath("../../track/Checkpoints/Checkpoint6"), NodePath("../../track/Checkpoints/Checkpoint7"), NodePath("../../track/Checkpoints/Checkpoint8"), NodePath("../../track/Checkpoints/Checkpoint9"), NodePath("../../track/Checkpoints/Checkpoint10"), NodePath("../../track/Checkpoints/Checkpoint11"), NodePath("../../track/Checkpoints/Checkpoint12"), NodePath("../../track/Checkpoints/Checkpoint13"), NodePath("../../track/Checkpoints/Checkpoint14"), NodePath("../../track/Checkpoints/Checkpoint15"), NodePath("../../track/Checkpoints/Checkpoint16"), NodePath("../../track/Checkpoints/Checkpoint17"), NodePath("../../track/Checkpoints/Checkpoint18"), NodePath("../../track/Checkpoints/Checkpoint19"), NodePath("../../track/Checkpoints/Checkpoint20"), NodePath("../../track/Checkpoints/Checkpoint21"), NodePath("../../track/Checkpoints/Checkpoint22"), NodePath("../../track/Checkpoints/Checkpoint23"), NodePath("../../track/Checkpoints/Checkpoint24"), NodePath("../../track/Checkpoints/Checkpoint25"), NodePath("../../track/Checkpoints/Checkpoint26"), NodePath("../../track/Checkpoints/Checkpoint27"), NodePath("../../track/Checkpoints/Checkpoint28"), NodePath("../../track/Checkpoints/Checkpoint29"), NodePath("../../track/Checkpoints/Checkpoint30"), NodePath("../../track/Checkpoints/Checkpoint31"), NodePath("../../track/Checkpoints/Checkpoint32"), NodePath("../../track/Checkpoints/Checkpoint33")])
 
 [node name="InputManager" type="Node" parent="GameManager"]
 script = ExtResource("7_f3i7v")
