@@ -16,6 +16,7 @@ var curb_left: Line2D = null
 var asphalt: Array[Polygon2D] = []
 var track_limits_left: Array[Polygon2D] = []
 var track_limits_right: Array[Polygon2D] = []
+var track_data: TrackData = null
 
 # signal
 signal track_built
@@ -23,6 +24,7 @@ signal track_built
 func _ready() -> void:
 	# Connect the track_built signal to the TrackManager
 	track_built.connect(get_parent().get_node("TrackManager")._on_track_built)
+	track_built.connect(_on_track_built)
 
 # Convenience helper to free the generated polygon
 func free_polygon() -> void:
@@ -233,3 +235,7 @@ func add_collision_to_polygons(polygons: Array[Polygon2D]) -> void:
 		body.add_child(coll)
 		coll.owner = body.owner
 		coll.disabled = false
+
+func _on_track_built() -> void:
+	if track_data == null:
+		track_data = self.find_child("TrackData") as TrackData
