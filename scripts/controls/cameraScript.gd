@@ -35,6 +35,8 @@ func _input(event: InputEvent) -> void:
 			always_target_best = true
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			target_best()
+		elif event.button_index == MOUSE_BUTTON_MIDDLE and event.pressed:
+			always_target_best = false
 
 func adjust_zoom(amount: float) -> void:
 	var new_zoom = zoom + Vector2(amount, amount)

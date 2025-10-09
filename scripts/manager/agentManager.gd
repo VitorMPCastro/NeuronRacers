@@ -17,6 +17,7 @@ class_name AgentManager
 @export_category("Debug")
 @export var print_debug_generation: bool = false
 @export var print_new_brains_to_console: bool = false
+@export var killswitch: bool = true
 var cars = []
 var best_cars = []
 static var best_speed: int = -1
@@ -117,8 +118,9 @@ func mutate(brain: MLP):
 func update_car_fitness():
 	for car in cars:
 		if car:
-			kill_stagnant_car(car)
-			car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
+			if killswitch:
+				kill_stagnant_car(car)
+				car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
 
 func get_best_speed():
 	for car in cars:
@@ -130,18 +132,26 @@ func get_best_speed():
 
 func kill_stagnant_car(car):
 	var grace_period = 3.0
-	if car.get_average_speed() < AgentManager.best_speed * 0.4 && grace_period < car.time_alive:
-		car.die()
+	var active_cars = []
+	for c in cars:
+		if !c.crashed:
+			active_cars.append(c)
+	if cars.size() > active_cars.size():
+		if car.get_average_speed() < AgentManager.best_speed * 0.15 && grace_period < car.time_alive:
+			car.die()
 
 func sort_by_fitness():
 	cars.sort_custom(func(a, b): if a && b: return a.fitness > b.fitness)
+	var cars_by_fitness = cars.duplicate(true)
+	return cars_by_fitness
 
 func get_best_car() -> Node:
-	sort_by_fitness()
-	for car in cars:
+	var sorted = sort_by_fitness()
+	for car in sorted:
 		if not car.crashed:
 			return car
-	return cars[0]
+	return sorted[0]
+
 
 func clear_scene():
 	for c in cars:
