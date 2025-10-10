@@ -12,9 +12,13 @@ radius = 148.122
 [node name="Car" type="CharacterBody2D"]
 collision_layer = 2
 script = ExtResource("1_qt2eu")
-friction = -100
-drag = -0.1
-traction_fast = 7.5
+steering_angle = 30
+engine_power = 1800
+friction = -150
+drag = -0.2
+braking = -10
+slip_speed = 1200
+traction_fast = 5.0
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 rotation = 1.5708
