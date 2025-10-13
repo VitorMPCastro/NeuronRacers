@@ -1,6 +1,7 @@
-[gd_scene load_steps=3 format=3 uid="uid://cg64jxxtbjk4p"]
+[gd_scene load_steps=4 format=3 uid="uid://cg64jxxtbjk4p"]
 
 [ext_resource type="Script" uid="uid://bx0iojohqitif" path="res://scripts/race/track.gd" id="1_4mr17"]
+[ext_resource type="Script" uid="uid://cb1dq4jb7jsdl" path="res://scripts/race/trackData.gd" id="2_1ovki"]
 
 [sub_resource type="Curve2D" id="Curve2D_ttsg5"]
 _data = {
@@ -18,3 +19,6 @@ curve = SubResource("Curve2D_ttsg5")
 [node name="LineParent" type="Node2D" parent="."]
 
 [node name="PolygonParent" type="Node2D" parent="."]
+
+[node name="TrackData" type="Node2D" parent="."]
+script = ExtResource("2_1ovki")

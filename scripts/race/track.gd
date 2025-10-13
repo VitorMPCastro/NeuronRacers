@@ -3,7 +3,10 @@ class_name Track
 
 # Public editable properties
 @export var track_width := 128.0
+@export var track_checkpoints := 30
+@export var track_sectors := 3
 @export var asphalt_texture: Texture2D = null
+@export var curb_texture: Texture2D = null
 var border_texture_a: Texture2D = null
 var border_texture_b: Texture2D = null
 var polygon_node: Polygon2D = null
@@ -239,3 +242,10 @@ func add_collision_to_polygons(polygons: Array[Polygon2D]) -> void:
 func _on_track_built() -> void:
 	if track_data == null:
 		track_data = self.find_child("TrackData") as TrackData
+		track_data.track = self
+		track_data.center_line = center_line
+		track_data.calculate_track_length()
+		track_data.divide_sectors()
+		track_data.generate_checkpoints()
+		for sector in track_data.sectors.values():
+			print("Sector from index %d to %d, length: %.2f" % [sector.start_index, sector.end_index, sector.sector_length])

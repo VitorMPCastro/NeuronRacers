@@ -6,12 +6,9 @@ class_name RaceProgressionManager
 
 # Lista de pares de pontos que formam os segmentos dos checkpoints
 static var checkpoints: Array = []
-static var sectors: Array[Sector]
 
 # Progresso de cada carro: {car: {index: int, checkpoints: int}}
 static var car_progress: Dictionary = {}
-
-var sector: Dictionary = {}
 
 func _ready():
 	_cache_checkpoints()
