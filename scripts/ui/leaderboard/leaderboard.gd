@@ -98,7 +98,7 @@ func _build_rows() -> void:
 
 	# Create entries for all cars using the same schema
 	for car in agent_manager.cars:
-		if car == null:
+		if car == null or car.crashed:
 			continue
 		var entry := LeaderboardEntry.new()
 		entry.set_car(car)

@@ -24,6 +24,12 @@ class_name AgentManager
 		_ai_aps = max(0.0, value)
 		_update_ai_timer()
 @export var randomize_car_skins: bool = true
+
+@export_category("Persistence")
+@export var save_dir: String = "user://generations"
+@export var autosave_each_generation: bool = false
+@export var autosave_prefix: String = "gen"   # file name prefix
+
 signal population_spawned
 signal generation_completed
 signal ai_tick
@@ -55,6 +61,8 @@ func _ready():
 	# Initialize and START the timer based on the exported APS
 	_update_ai_timer()
 
+	DirAccess.make_dir_recursive_absolute(save_dir)
+
 	spawn_population()
 
 
@@ -84,9 +92,21 @@ func _update_ai_timer() -> void:
 		_ai_timer.stop()
 	_ai_timer.start()
 
+func _required_input_size_from_cars() -> int:
+	if car_scene == null:
+		return input_layer_neurons  # fallback
+	var probe := car_scene.instantiate()
+	var size := 0
+	if probe is Car:
+		size = (probe as Car).ai_input_size()
+	probe.queue_free()
+	return max(1, size)
+
 # Spawna uma população inteira
 func spawn_population(brains: Array = []):
 	cars.clear()
+
+	var required_input = _required_input_size_from_cars()
 	
 	for i in range(population_size):
 		var car = car_scene.instantiate()
@@ -96,9 +116,17 @@ func spawn_population(brains: Array = []):
 		# Create or reuse a brain and assign to the car's pilot
 		var pilot := PilotFactory.create_random_pilot()
 		if brains.size() > i:
-			pilot.brain = brains[i]
+			var base: MLP = brains[i]
+			if base.input_size == required_input and base.hidden_size == hidden_layer_neurons and base.output_size == output_layer_neurons:
+				# Use provided brain as-is (or clone if you prefer isolation)
+				pilot.brain = base.clone()
+			else:
+				push_warning("Provided brain size mismatch (got %s,%s,%s; need %s,%s,%s). Reinitializing."
+					% [base.input_size, base.hidden_size, base.output_size, required_input, hidden_layer_neurons, output_layer_neurons])
+				pilot.brain = MLP.new(required_input, hidden_layer_neurons, output_layer_neurons)
 		else:
-			pilot.brain = MLP.new(input_layer_neurons, hidden_layer_neurons, output_layer_neurons)
+			pilot.brain = MLP.new(required_input, hidden_layer_neurons, output_layer_neurons)
+
 		car.car_data.pilot = pilot
 
 		# Connect AI tick gating to the pilot (pilot owns decisions)
@@ -108,8 +136,8 @@ func spawn_population(brains: Array = []):
 		if randomize_car_skins and sprite_manager:
 			var sprite := car.get_node_or_null("Sprite2D") as Sprite2D
 			if sprite:
-				var seed := int(i)  # stable per index; change to instance_id if preferred
-				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed)
+				var randomic_seed := int(i)  # stable per index; change to instance_id if preferred
+				var tex := sprite_manager.get_car_texture_for_pilot(pilot, randomic_seed)
 				if tex:
 					sprite.texture = tex
 
@@ -130,6 +158,9 @@ func weighted_pick(cars: Array, total_fitness) -> Car:
 
 func next_generation():
 	generation_completed.emit()
+
+	if autosave_each_generation:
+		save_generation_to_json("", [], "autosave before evolve")
 	generation += 1
 	print("Geração: ", generation)
 	var elites = int(population_size * elitism_percent)
@@ -142,9 +173,10 @@ func next_generation():
 	
 	sort_by_fitness()
 	var new_brains: Array = []
+	var required_input = _required_input_size_from_cars()
 	for i in range(population_size):
 		var parent = weighted_pick(best_cars, total_fitness)
-		var brain = mutate(parent.car_data.pilot.brain)
+		var brain = mutate(parent.car_data.pilot.brain, required_input)  # <— enforce input size
 		new_brains.append(brain)
 	
 	# Cria nova população com os cérebros
@@ -154,25 +186,37 @@ func next_generation():
 	spawn_population(new_brains)
 
 # Faz mutação nos pesos do MLP
-func mutate(brain: MLP):
-	var new_brain: MLP = brain.clone()
-	
+func mutate(brain: MLP, required_input_size: int):
+	var needs_resize := (
+		brain.input_size != required_input_size or
+		brain.hidden_size != hidden_layer_neurons or
+		brain.output_size != output_layer_neurons
+	)
+
+	var new_brain: MLP = null
+	if needs_resize:
+		# Reinitialize to requested sizes (simple path). Optionally copy overlap here.
+		new_brain = MLP.new(required_input_size, hidden_layer_neurons, output_layer_neurons)
+	else:
+		new_brain = brain.clone()
+
+	# Apply mutations
 	for i in range(new_brain.w1.size()):
 		if randf() < mutate_chance:
 			new_brain.w1[i] += randf_range(-weight, weight)
-	
+
 	for i in range(new_brain.w2.size()):
 		if randf() < mutate_chance:
 			new_brain.w2[i] += randf_range(-weight, weight)
-			
+
 	for i in range(new_brain.b1.size()):
 		if randf() < mutate_chance:
 			new_brain.b1[i] += randf_range(-weight, weight)
-			
+
 	for i in range(new_brain.b2.size()):
 		if randf() < mutate_chance:
 			new_brain.b2[i] += randf_range(-weight, weight)
-	
+
 	return new_brain
 
 func update_car_fitness():
@@ -249,3 +293,115 @@ func generation_to_string(options: Dictionary = {
 	
 	
 	return generation_string
+
+func save_generation_to_json(file_path: String = "", brains: Array = [], note: String = "") -> String:
+	var brains_to_save: Array = brains
+	if brains_to_save.is_empty():
+		# Collect from current cars
+		for c in cars:
+			if c and c.car_data and c.car_data.pilot and c.car_data.pilot.brain:
+				brains_to_save.append(c.car_data.pilot.brain)
+
+	if brains_to_save.is_empty():
+		push_error("AgentManager.save_generation_to_json: No brains to save.")
+		return ""
+
+	var required_input := _required_input_size_from_cars()
+	var payload := {
+		"version": 1,
+		"timestamp": Time.get_unix_time_from_system(),
+		"generation": generation,
+		"population_size": brains_to_save.size(),
+		"nn": {
+			"input": required_input,
+			"hidden": hidden_layer_neurons,
+			"output": output_layer_neurons
+		},
+		"evolution": {
+			"elitism_percent": elitism_percent,
+			"mutate_chance": mutate_chance,
+			"weight": weight
+		},
+		"ai_actions_per_second": _ai_aps,
+		"note": note,
+		"brains": brains_to_save.map(func(b: MLP) -> Dictionary: return b.to_dict())
+	}
+
+	var json := JSON.stringify(payload, "  ")
+	var path := file_path
+	if path.is_empty():
+		var fname := "%s_g%03d_%d.json" % [autosave_prefix, generation, int(Time.get_unix_time_from_system())]
+		path = save_dir.rstrip("/") + "/" + fname
+
+	var ok := _write_text_file(path, json)
+	if ok:
+		print("Saved generation to: ", path)
+		return path
+	push_error("AgentManager.save_generation_to_json: Failed to write file at " + path)
+	return ""
+
+func load_generation_from_json(path: String, allow_resize: bool = false) -> void:
+	var txt := _read_text_file(path)
+	if txt.is_empty():
+		push_error("AgentManager.load_generation_from_json: File empty or not found: " + path)
+		return
+	var data = JSON.parse_string(txt)
+	if typeof(data) != TYPE_DICTIONARY:
+		push_error("AgentManager.load_generation_from_json: Invalid JSON.")
+		return
+
+	var saved_gen := int(data.get("generation", 0))
+	var nn = data.get("nn", {})
+	var saved_in := int(nn.get("input", 0))
+	var saved_hid := int(nn.get("hidden", hidden_layer_neurons))
+	var saved_out := int(nn.get("output", output_layer_neurons))
+
+	var brains_arr = data.get("brains", [])
+	if brains_arr.is_empty():
+		push_error("AgentManager.load_generation_from_json: No brains in file.")
+		return
+
+	var brains: Array[MLP] = []
+	for d in brains_arr:
+		var mlp := MLP.from_dict(d)
+		brains.append(mlp)
+
+	var required_input := _required_input_size_from_cars()
+	var same_sizes := (saved_in == required_input and saved_hid == hidden_layer_neurons and saved_out == output_layer_neurons)
+	if not same_sizes and not allow_resize:
+		push_error("Saved NN sizes (%s,%s,%s) do not match current config (%s,%s,%s). Set allow_resize=true or align config."
+			% [saved_in, saved_hid, saved_out, required_input, hidden_layer_neurons, output_layer_neurons])
+		return
+
+	# Optionally adopt saved evolution params
+	if data.has("evolution"):
+		var evo = data["evolution"]
+		if evo.has("elitism_percent"): elitism_percent = float(evo["elitism_percent"])
+		if evo.has("mutate_chance"): mutate_chance = float(evo["mutate_chance"])
+		if evo.has("weight"): weight = float(evo["weight"])
+	if data.has("ai_actions_per_second"):
+		ai_actions_per_second = float(data["ai_actions_per_second"])
+
+	clear_scene()
+	# If sizes mismatch, spawn_population will re-init those brains to required size (warning printed).
+	spawn_population(brains)
+	generation = saved_gen
+	timer = 0.0
+	print("Loaded generation ", generation, " from ", path)
+
+func _write_text_file(path: String, content: String) -> bool:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(content)
+	f.flush()
+	f.close()
+	return true
+
+func _read_text_file(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var txt := f.get_as_text()
+	f.close()
+	return txt

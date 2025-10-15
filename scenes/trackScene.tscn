@@ -255,7 +255,6 @@ elitism_percent = 0.1
 weight = 0.3
 mutate_chance = 0.2
 input_layer_neurons = 6
-ai_actions_per_second = 240.0
 
 [node name="CarTelemetry" type="Node2D" parent="GameManager/AgentManager"]
 script = ExtResource("5_4qaac")
@@ -274,7 +273,6 @@ sample_step = 4.0
 track_width = 30.0
 curb_thickness = 1.0
 use_cubic_sampling = true
-debug_show_sectors = true
 
 [node name="Track" parent="GameManager" instance=ExtResource("11_405ff")]
 scale = Vector2(30, 30)

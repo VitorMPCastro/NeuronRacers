@@ -61,3 +61,26 @@ func clone() -> MLP:
 	copy.b2 = b2.duplicate()
 	
 	return copy
+
+func to_dict() -> Dictionary:
+	# Convert PackedFloat32Array -> Array for JSON
+	return {
+		"input_size": input_size,
+		"hidden_size": hidden_size,
+		"output_size": output_size,
+		"w1": w1.duplicate(),
+		"b1": b1.duplicate(),
+		"w2": w2.duplicate(),
+		"b2": b2.duplicate(),
+	}
+
+static func from_dict(d: Dictionary) -> MLP:
+	var in_sz := int(d.get("input_size", 0))
+	var hid_sz := int(d.get("hidden_size", 0))
+	var out_sz := int(d.get("output_size", 0))
+	var m := MLP.new(in_sz, hid_sz, out_sz)
+	if d.has("w1"): m.w1 = PackedFloat32Array(d["w1"])
+	if d.has("b1"): m.b1 = PackedFloat32Array(d["b1"])
+	if d.has("w2"): m.w2 = PackedFloat32Array(d["w2"])
+	if d.has("b2"): m.b2 = PackedFloat32Array(d["b2"])
+	return m

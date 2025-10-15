@@ -148,6 +148,16 @@ func _physics_process(delta: float) -> void:
 		var collision = get_slide_collision(i)
 		die()
 
+func get_ai_inputs() -> Array:
+	# Currently: only ray sensor distances. Extend here if you add more inputs.
+	return get_sensor_data()
+
+func ai_input_size() -> int:
+	var rig := $RayParent as CarSensors
+	if rig:
+		return rig.get_enabled_ray_count()
+	return 0
+
 # 📥 Input (AI is delegated to Pilot)
 func handle_input(delta: float) -> void:
 	if use_ai:
@@ -159,8 +169,8 @@ func handle_input(delta: float) -> void:
 
 		# Update targets on ai_tick; keep applying every frame
 		if pilot.can_decide(aps):
-			var sensors = get_sensor_data()
-			var act = pilot.decide(sensors)
+			var inputs = get_ai_inputs()  # <— use the declared inputs
+			var act = pilot.decide(inputs)
 			_ctrl_target_steer = clamp(float(act.get("steer", 0.0)), -1.0, 1.0)
 			_ctrl_target_throttle = clamp(float(act.get("throttle", 0.0)), -1.0, 1.0)
 			pilot.consume_decision(aps)
@@ -239,16 +249,17 @@ func calculate_steering(delta: float) -> void:
 	rotation = velocity.angle()
 
 func get_sensor_data() -> Array:
-	var data: Array = []
-	for child in $RayParent.get_children():
-		if child is RayCast2D:
-			var ray := child as RayCast2D
-			var max_dist = max(1.0, ray.target_position.length())
-			var dist = max_dist
-			if ray.is_colliding():
-				dist = ray.get_collision_point().distance_to(global_position)
-			data.append(clamp(dist / max_dist, 0.0, 1.0))
-	return data
+	var rig := $RayParent as CarSensors
+	if rig:
+		# Ask CarSensors for already-normalized values; convert to Array for MLP
+		var packed: PackedFloat32Array = rig.get_values(self)
+		var result: Array = []
+		result.resize(packed.size())
+		for i in range(packed.size()):
+			result[i] = packed[i]
+		return result
+	# Legacy fallback removed; ensure a CarSensors is present under RayParent
+	return []
 
 func die():
 	car_death.emit()
