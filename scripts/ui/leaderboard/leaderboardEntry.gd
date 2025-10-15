@@ -16,24 +16,42 @@ func remove_field(field: LeaderboardField) -> void:
 		fields.erase(field)
 		remove_child(field)
 
+# Query only fields that have a non-empty query_path.
+# Fields with empty query_path (e.g., "#") are set separately (see set_rank).
 func update_entry(telemetry: CarTelemetry) -> void:
 	if car == null or telemetry == null or fields.is_empty():
 		return
-	var paths := PackedStringArray()
-	for f in fields:
-		paths.append(f.query_path)
 
-	# NEW: use TelemetryData
+	var paths := PackedStringArray()
+	var field_to_path_idx := {} # field_index -> path_index
+	var p := 0
+	for i in range(fields.size()):
+		var qp := fields[i].query_path.strip_edges()
+		if qp != "":
+			field_to_path_idx[i] = p
+			paths.append(qp)
+			p += 1
+
+	if paths.is_empty():
+		return
+
 	var td: TelemetryData = telemetry.get_values_for_car(car, paths)
 	if td == null or td.rows.is_empty():
 		return
 
-	# Each row: [car_name, value1, value2, ...] in same order as td.header/paths
-	var row: Array = td.rows[0]
+	var row: Array = td.rows[0]  # [car_name, v1, v2, ...]
 	for i in range(fields.size()):
-		var idx := 1 + i
-		var value = row[idx] if idx < row.size() else null
-		fields[i].render(value)
+		if field_to_path_idx.has(i):
+			var path_idx: int = int(field_to_path_idx[i])
+			var value_idx := 1 + path_idx
+			var value = row[value_idx] if value_idx < row.size() else null
+			fields[i].render(value)
+		# else: leave fields like "#" to be set via set_rank()
+
+func set_rank(rank: int) -> void:
+	var idx := find_field_index("#")
+	if idx != -1:
+		fields[idx].render(rank)
 
 func find_field_index(field_name: String) -> int:
 	for i in range(fields.size()):

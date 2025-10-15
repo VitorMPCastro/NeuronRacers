@@ -44,7 +44,15 @@ func _build_header() -> void:
 	add_child(header_row)
 	move_child(header_row, 0)
 
-	# Define columns once: same settings used for header cells and row cells
+	# Rank column
+	var rank_col := LeaderboardField.new()
+	rank_col.field_name = "#"
+	rank_col.align = HORIZONTAL_ALIGNMENT_RIGHT
+	rank_col.column_weight = 0.5
+	rank_col.min_width = 48
+	rank_col.text = rank_col.field_name
+
+	# Pilot column
 	var name_col := LeaderboardField.new()
 	name_col.field_name = "Pilot"
 	name_col.align = HORIZONTAL_ALIGNMENT_LEFT
@@ -52,6 +60,7 @@ func _build_header() -> void:
 	name_col.min_width = 200
 	name_col.text = name_col.field_name
 
+	# Fitness column
 	var fit_col := LeaderboardField.new()
 	fit_col.field_name = "Fitness"
 	fit_col.align = HORIZONTAL_ALIGNMENT_RIGHT
@@ -59,6 +68,7 @@ func _build_header() -> void:
 	fit_col.min_width = 120
 	fit_col.text = fit_col.field_name
 
+	header_row.add_child(rank_col)
 	header_row.add_child(name_col)
 	header_row.add_child(fit_col)
 
@@ -72,12 +82,21 @@ func _build_rows() -> void:
 		e.queue_free()
 	entries.clear()
 
-	# Create entries for all cars using same column layout as header
+	# Create entries for all cars
 	for car in agent_manager.cars:
 		if car == null:
 			continue
 		var entry := LeaderboardEntry.new()
 		entry.set_car(car)
+
+		# Rank field (no query_path, set later by set_rank)
+		var rank_field := LeaderboardField.new()
+		rank_field.field_name = "#"
+		rank_field.query_path = ""  # empty means: computed column
+		rank_field.align = HORIZONTAL_ALIGNMENT_RIGHT
+		rank_field.column_weight = 0.5
+		rank_field.min_width = 16
+		rank_field.format = "{value}"
 
 		var pilot_field := LeaderboardField.new()
 		pilot_field.field_name = "Pilot"
@@ -96,6 +115,7 @@ func _build_rows() -> void:
 		fitness_field.decimals = 3
 		fitness_field.format = "{value}"
 
+		entry.add_field(rank_field)
 		entry.add_field(pilot_field)
 		entry.add_field(fitness_field)
 
@@ -103,7 +123,7 @@ func _build_rows() -> void:
 		add_child(entry)     # after header
 
 func update_leaderboard() -> void:
-	# Update visible values
+	# Update visible values (excluding "#" which is set after sorting)
 	for entry in entries:
 		entry.update_entry(car_telemetry)
 
@@ -116,6 +136,8 @@ func update_leaderboard() -> void:
 		if entries[i].get_parent() != self:
 			add_child(entries[i])
 		move_child(entries[i], i + header_offset)
+		# Set placement after sorting
+		entries[i].set_rank(i + 1)
 
 func _compare_entries(a: LeaderboardEntry, b: LeaderboardEntry) -> bool:
 	var ia = a.find_field_index(sort_field)
