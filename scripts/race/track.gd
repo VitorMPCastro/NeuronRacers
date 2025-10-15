@@ -178,12 +178,6 @@ func build_from_path(path: Path2D, width: float = 128.0, curb_thickness: float =
 	return self
 
 func toggle_show_lines(debug_show_lines: bool) -> void:
-	print("Track.toggle_show_lines: ", debug_show_lines)
-	print(" center_line: ", is_instance_valid(center_line))
-	print(" left_line: ", is_instance_valid(left_line))
-	print(" right_line: ", is_instance_valid(right_line))
-	print(" curb_left: ", is_instance_valid(curb_left))
-	print(" curb_right: ", is_instance_valid(curb_right))
 	if is_instance_valid(center_line):
 		center_line.visible = debug_show_lines
 		center_line.width = 4.0 if debug_show_lines else 0.0
@@ -258,9 +252,7 @@ func draw_line_track_section(line: Line2D, start_index: int, end_index: int, col
 	var parent = line.find_parent("LineParent")
 	parent.add_child(highlight_line)
 
-	print("Highlighting track section from index %d to %d" % [start_index, end_index])
-	print("Color: ", color)
 	return highlight_line
 
 func _on_track_built() -> void:
-	print(track_data.get_telemetry_dictionary())
+	pass

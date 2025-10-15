@@ -18,6 +18,16 @@ class_name AgentManager
 @export var print_debug_generation: bool = false
 @export var print_new_brains_to_console: bool = false
 @export var killswitch: bool = true
+@export var ai_actions_per_second: float = 20.0:
+	get: return _ai_aps
+	set(value):
+		_ai_aps = max(0.0, value)
+		_update_ai_timer()
+@export var randomize_car_skins: bool = true
+signal population_spawned
+signal generation_completed
+signal ai_tick
+
 var cars = []
 var best_cars = []
 static var best_speed: int = -1
@@ -27,19 +37,26 @@ var timer = 0.0
 @onready var gm = self.find_parent("GameManager") as GameManager
 @onready var data_broker = gm.find_child("DataBroker") as DataBroker
 @onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
+@onready var sprite_manager: SpriteManager = gm.find_child("SpriteManager") as SpriteManager
 
-# signal
-signal population_spawned
-signal generation_completed
+var _ai_timer: Timer
+var _ai_aps: float = 20.0
+
 
 func _ready():
 	if !is_training:
 		return
-	spawn_population()
-	
+	_ai_timer = Timer.new()
+	_ai_timer.one_shot = false
+	_ai_timer.process_callback = Timer.TIMER_PROCESS_PHYSICS
+	add_child(_ai_timer)
+	_ai_timer.timeout.connect(_on_ai_timer_timeout)
 
-	if telemetry:
-		telemetry.sample_once(PackedStringArray(["car_data.pilot.pilot_first_name"]))
+	# Initialize and START the timer based on the exported APS
+	_update_ai_timer()
+
+	spawn_population()
+
 
 func _physics_process(delta: float) -> void:
 	update_car_fitness()
@@ -52,6 +69,21 @@ func _process(delta):
 	if timer >= generation_time || is_all_cars_dead():
 		next_generation()
 
+func _on_ai_timer_timeout() -> void:
+	ai_tick.emit()
+
+func _update_ai_timer() -> void:
+	if _ai_timer == null:
+		return
+	if _ai_aps <= 0.0:
+		_ai_timer.stop()              # 0 -> ungated: cars decide every physics frame
+		return
+	_ai_timer.wait_time = 1.0 / _ai_aps
+	# Always restart so new wait_time applies immediately
+	if !_ai_timer.is_stopped():
+		_ai_timer.stop()
+	_ai_timer.start()
+
 # Spawna uma população inteira
 func spawn_population(brains: Array = []):
 	cars.clear()
@@ -61,11 +93,26 @@ func spawn_population(brains: Array = []):
 		car.use_ai = true
 		car.position = trackOrigin.position
 
+		# Create or reuse a brain and assign to the car's pilot
+		var pilot := PilotFactory.create_random_pilot()
 		if brains.size() > i:
-			car.brain = brains[i]
+			pilot.brain = brains[i]
 		else:
-			car.brain = MLP.new(input_layer_neurons, hidden_layer_neurons, output_layer_neurons)
-		
+			pilot.brain = MLP.new(input_layer_neurons, hidden_layer_neurons, output_layer_neurons)
+		car.car_data.pilot = pilot
+
+		# Connect AI tick gating to the pilot (pilot owns decisions)
+		ai_tick.connect(pilot.notify_ai_tick)
+
+		# Assign a car sprite via SpriteManager
+		if randomize_car_skins and sprite_manager:
+			var sprite := car.get_node_or_null("Sprite2D") as Sprite2D
+			if sprite:
+				var seed := int(i)  # stable per index; change to instance_id if preferred
+				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed)
+				if tex:
+					sprite.texture = tex
+
 		add_child(car)
 		cars.append(car)
 	
@@ -97,7 +144,7 @@ func next_generation():
 	var new_brains: Array = []
 	for i in range(population_size):
 		var parent = weighted_pick(best_cars, total_fitness)
-		var brain = mutate(parent.brain)
+		var brain = mutate(parent.car_data.pilot.brain)
 		new_brains.append(brain)
 	
 	# Cria nova população com os cérebros

@@ -14,6 +14,7 @@ texture = ExtResource("2_pqlom")
 
 [node name="Car" parent="." instance=ExtResource("1_4ujry")]
 visible = false
+braking = 450.0
 
 [node name="Camera2D" type="Camera2D" parent="Car"]
 zoom = Vector2(0.5, 0.5)

@@ -12,7 +12,6 @@ static var car_progress: Dictionary = {}
 
 func _ready():
 	_cache_checkpoints()
-	print(checkpoints.size())
 
 
 func _cache_checkpoints():

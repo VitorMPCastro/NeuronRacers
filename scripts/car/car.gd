@@ -2,29 +2,44 @@ extends CharacterBody2D
 class_name Car
 
 #CAR CHARACTERISTICS
-@export var steering_angle = 15      # Ângulo máximo de esterçamento
-@export var engine_power = 900       # Potência do motor
-@export var friction = -55           # Atrito do carro
-@export var drag = -0.06             # Arrasto do ar
-@export var braking = -450           # Potência de frenagem
-@export var max_speed_reverse = 250  # Velocidade máxima em ré
-@export var slip_speed = 400         # Velocidade onde a tração diminui (drift)
-@export var traction_fast = 2.5      # Tração em alta velocidade
-@export var traction_slow = 10       # Tração em baixa velocidade
+@export var steering_angle = 15
+@export var engine_power = 900       # acts like "force/accel" toward forward
+
+@export_group("Damping (Inspector Units)")
+@export var friction_ui: float = 55.0    # actual = friction_ui / 100.0   (e.g., 55 -> 0.55)
+@export var drag_ui: float = 600.0       # actual = drag_ui / 10000.0     (e.g., 600 -> 0.06)
+
+@export var braking = 450.0          # braking strength (positive)
+@export var max_speed_forward = 2500 # optional forward speed cap
+@export var max_speed_reverse = 250
+@export var traction_curve: Curve = Curve.new()  # maps speed (px/s) to max turn rate (rad/sec)
 @export var wheel_base = 65          # Distância entre eixos
+
+# TUNING
+@export var use_auto_top_speed: bool = true
+@export var target_top_speed: float = 1000.0  # desired straight-line speed (px/s)
+@export var log_tuning_info: bool = true
 
 #RUNTIME VARS
 var crashed = false
-var acceleration = Vector2.ZERO      # Vetor de aceleração
-var steer_direction = 0.0            # Direção de esterçamento
+var acceleration = Vector2.ZERO      # Frame-local force/accel accumulator
+var steer_direction = 0.0            # Direção de esterçamento (radians)
 var camera_follow = false            # Se a câmera está seguindo este carro
 
 #CONTROLS AND AI
 @export var is_player = false        # Se este carro é controlado pelo jogador
-@export var use_ai = true            # Se este carro é controlado por IA
+@export var use_ai = true
+# Smooth the applied controls toward the last decided controls
+@export_range(0.0, 60.0, 0.1) var control_smooth_hz: float = 12.0  # 0 = no smoothing
+@export var input_deadzone: float = 0.05
+
+# Cached controls (target decided on ticks; applied every physics frame)
+var _ctrl_target_steer := 0.0      # -1..1
+var _ctrl_target_throttle := 0.0   # -1..1
+var _ctrl_steer := 0.0
+var _ctrl_throttle := 0.0
 var car_data = CarData.new()
 var control_module
-var brain: MLP
 var total_speed = 0.0
 var time_alive: float:
 	get():
@@ -40,13 +55,18 @@ var origin_position: Vector2
 var max_distance = 0.0
 var last_position: Vector2
 
+# AI gating (read-only reference to AgentManager; Pilot handles gating)
+var _am: AgentManager = null
+
 # SIGNALS AND EVENTS
 signal car_death
 signal car_spawn
 
 func _on_spawn():
 	self.car_data.timestamp_spawn = GameManager.global_time
-	self.car_data.pilot = PilotFactory.create_random_pilot()
+	# Only create a Pilot if AgentManager didn’t set one
+	if self.car_data.pilot == null:
+		self.car_data.pilot = PilotFactory.create_random_pilot()
 	var origin_node = get_tree().get_root().get_node("TrackScene/track/TrackOrigin")
 	last_position = global_position
 	RaceProgressionManager.register_car(self)
@@ -70,92 +90,191 @@ func _to_string() -> String:
 func get_average_speed():
 	return total_speed / time_alive if time_alive > 0.0 else 0.0
 
+func speed_as_fraction_of_top_speed() -> float:
+	var v := velocity.length()
+	var vt = target_top_speed if use_auto_top_speed else max_speed_forward
+	return v / vt if vt > 0.0 else 0.0
+
+func _traction_for_speed() -> float:
+	return max(0.0, traction_curve.sample_baked(max(0.0, speed_as_fraction_of_top_speed())))
+
 func collect_telemetry():
 	self.top_speed = velocity.length()
+
+func friction_coeff() -> float:
+	return max(0.0, friction_ui) / 100.0
+
+func drag_coeff() -> float:
+	return max(0.0, drag_ui) / 10000.0
 
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
 	car_spawn.emit()
-
+	_am = get_parent() as AgentManager
+	# Auto-tune damping to reach target top speed (optional)
+	if use_auto_top_speed:
+		_retune_for_target_top_speed()
+		if log_tuning_info:
+			var v := _expected_terminal_speed()
+			print("Car damping tuned. friction_ui=", friction_ui, " (", friction_coeff(), "), drag_ui=", drag_ui, " (", drag_coeff(), "), expected_top_speed≈", v)
 
 func _physics_process(delta: float) -> void:
-	handle_input()
+	acceleration = Vector2.ZERO
+	handle_input(delta)
 	calculate_steering(delta)
-		
+
 	RaceProgressionManager.update_car_progress(self, last_position, global_position)
 	last_position = global_position
-	
-	var distNextCheckpoint = RaceProgressionManager.get_distance_to_next_checkpoint(self)
 
-	# Física geral
+	_apply_friction_and_drag(delta)
 	velocity += acceleration * delta
-	apply_friction(delta)
+
+	# Optional: clamp speeds
+	if velocity.dot(transform.x) >= 0.0 and velocity.length() > max_speed_forward:
+		velocity = velocity.normalized() * max_speed_forward
+	elif velocity.dot(transform.x) < 0.0 and velocity.length() > max_speed_reverse:
+		velocity = velocity.normalized() * max_speed_reverse
+
 	move_and_slide()
-	
+
 	var dist = global_position.distance_to(origin_position)
 	if dist > max_distance:
 		max_distance = dist
 	
 	total_speed += velocity.length()
 	
-	for i in get_slide_collision_count():
+	for i in range(get_slide_collision_count()):
 		var collision = get_slide_collision(i)
 		die()
 
-# 📥 Input do jogador
-func handle_input() -> void:
-	
+# 📥 Input (AI is delegated to Pilot)
+func handle_input(delta: float) -> void:
 	if use_ai:
-		var sensors = get_sensor_data()
-		var outputs = brain.forward(sensors)
-		var steering = outputs[0] # -1 a 1
-		var throttle = outputs[1] # -1 a 1
-		
-		steer_direction = steering * deg_to_rad(steering_angle)
-		if throttle > 0.1:
-			acceleration = transform.x * engine_power * throttle
-		elif throttle < -0.1:
-			acceleration = transform.x * braking * abs(throttle)
+		var pilot = car_data.pilot
+		if pilot == null:
+			return
+
+		var aps := (_am.ai_actions_per_second if _am else 0.0)
+
+		# Update targets on ai_tick; keep applying every frame
+		if pilot.can_decide(aps):
+			var sensors = get_sensor_data()
+			var act = pilot.decide(sensors)
+			_ctrl_target_steer = clamp(float(act.get("steer", 0.0)), -1.0, 1.0)
+			_ctrl_target_throttle = clamp(float(act.get("throttle", 0.0)), -1.0, 1.0)
+			pilot.consume_decision(aps)
+
+		# Smooth application each frame
+		var hz = max(0.0, control_smooth_hz)
+		var alpha = 1.0 if hz <= 0.0 else (1.0 - pow(2.0, -delta * hz))
+		_ctrl_steer = lerp(_ctrl_steer, _ctrl_target_steer, alpha)
+		_ctrl_throttle = lerp(_ctrl_throttle, _ctrl_target_throttle, alpha)
+
+		# Deadzone
+		var steer_cmd = _ctrl_steer if abs(_ctrl_steer) > input_deadzone else 0.0
+		var throttle_cmd = _ctrl_throttle if abs(_ctrl_throttle) > input_deadzone else 0.0
+
+		# Apply steer continuously
+		var max_steer_rad = deg_to_rad(steering_angle)
+		steer_direction = steer_cmd * max_steer_rad
+
+		# Apply throttle/brake continuously (no extra delta here)
+		if throttle_cmd > 0.0:
+			acceleration += transform.x * engine_power * throttle_cmd
+		elif throttle_cmd < 0.0 and velocity != Vector2.ZERO:
+			# Brake opposite to current motion
+			acceleration += -velocity.normalized() * braking * (-throttle_cmd)
 	else:
+		# TODO: player input
+		pass
+
+func _apply_friction_and_drag(delta: float) -> void:
+	# If nearly stopped and no input, snap to rest
+	if acceleration == Vector2.ZERO and velocity.length() < 1.0:
+		velocity = Vector2.ZERO
 		return
 
-# 🛑 Atrito
-func apply_friction(delta: float) -> void:
-	if acceleration == Vector2.ZERO and velocity.length() < 50:
-		velocity = Vector2.ZERO
-	var friction_force = velocity * friction * delta
-	var drag_force = velocity * velocity.length() * drag * delta
-	acceleration += drag_force + friction_force
+	var v := velocity
+	var speed := v.length()
+	if speed <= 0.0:
+		return
 
-# 🔄 Cálculo do esterçamento
+	var dir := v / speed
+	var b := friction_coeff()
+	var a := drag_coeff()
+	# Linear damping (rolling resistance, drivetrain losses)
+	var linear = -dir * b * speed
+	# Quadratic damping (air drag)
+	var quadratic = -dir * a * speed * speed
+	# Add to this frame's acceleration (no extra delta here)
+	acceleration += linear + quadratic
+
+# 🔄 Steering: preserve speed, rotate velocity by a max angular step
 func calculate_steering(delta: float) -> void:
-	var rear_wheel = position - transform.x * wheel_base / 2.0
-	var front_wheel = position + transform.x * wheel_base / 2.0
+	if velocity == Vector2.ZERO and _ctrl_throttle == 0.0:
+		return
+
+	# Bicycle model to compute a target heading
+	var rear_wheel = position - transform.x * wheel_base * 0.5
+	var front_wheel = position + transform.x * wheel_base * 0.5
 	rear_wheel += velocity * delta
 	front_wheel += velocity.rotated(steer_direction) * delta
-	var new_heading = rear_wheel.direction_to(front_wheel)
+	var target_heading := rear_wheel.direction_to(front_wheel)
 
-	var traction = traction_slow if velocity.length() <= slip_speed else traction_fast
-	var d = new_heading.dot(velocity.normalized())
+	var speed := velocity.length()
+	if speed <= 0.0:
+		rotation = target_heading.angle()
+		return
 
-	if d > 0:
-		velocity = lerp(velocity, new_heading * velocity.length(), traction * delta)
-	else:
-		velocity = -new_heading * min(velocity.length(), max_speed_reverse)
+	var current_ang := velocity.angle()
+	var target_ang := target_heading.angle()
+	var delta_ang := wrapf(target_ang - current_ang, -PI, PI)
 
-	rotation = new_heading.angle()
+	var traction := _traction_for_speed()     # rad/sec
+	var max_turn := traction * delta
+	var apply_turn = clamp(delta_ang, -max_turn, max_turn)
+
+	velocity = velocity.rotated(apply_turn)   # preserve magnitude, change direction
+	rotation = velocity.angle()
 
 func get_sensor_data() -> Array:
 	var data: Array = []
 	for child in $RayParent.get_children():
 		if child is RayCast2D:
-			var ray = child as RayCast2D
-			var dist = ray.target_position.length()
+			var ray := child as RayCast2D
+			var max_dist = max(1.0, ray.target_position.length())
+			var dist = max_dist
 			if ray.is_colliding():
 				dist = ray.get_collision_point().distance_to(global_position)
-			data.append(dist / ray.target_position.length())
+			data.append(clamp(dist / max_dist, 0.0, 1.0))
 	return data
 
 func die():
 	car_death.emit()
+
+# Compute expected terminal speed for current engine_power, friction, drag
+func _expected_terminal_speed(F: float = engine_power, b: float = -1.0, a: float = -1.0) -> float:
+	if b < 0.0:
+		b = friction_coeff()
+	if a < 0.0:
+		a = drag_coeff()
+	if a <= 0.0:
+		return F / max(0.000001, b) if b > 0.0 else INF
+	var disc := b * b + 4.0 * a * F
+	return max(0.0, (-b + sqrt(disc)) / (2.0 * a))
+
+# Choose drag (and adjust friction if necessary) so that F = b*V + a*V^2 at V = target_top_speed
+func _retune_for_target_top_speed() -> void:
+	var V = max(1.0, target_top_speed)
+	var F = max(0.0, engine_power)
+	var b = max(0.0, friction_coeff())
+	var a = (F - b * V) / (V * V)
+	if a <= 0.0:
+		# If friction is too high to reach V, reduce friction to 10% of F/V
+		b = 0.1 * F / V
+		friction_ui = b * 100.0
+		b = friction_coeff()
+		a = (F - b * V) / (V * V)
+	# Write back UI-scaled values
+	drag_ui = max(a, 1e-6) * 10000.0

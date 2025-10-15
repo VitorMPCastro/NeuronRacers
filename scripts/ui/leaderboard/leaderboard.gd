@@ -9,6 +9,13 @@ var timer: Timer = Timer.new()
 
 @export var sort_field: String = "Fitness"
 @export var update_interval_s: float = 0.2
+# Control whether default columns can be used when no custom columns are provided
+@export var load_default_columns: bool = true
+# Custom columns you can set in the Inspector (leave empty to use defaults when allowed)
+@export var custom_columns: Array[LeaderboardColumn] = []
+
+# Runtime-active columns (resolved from custom_columns or defaults)
+var columns: Array[LeaderboardColumn] = []
 
 # Header HBox (first child)
 var header_row: HBoxContainer
@@ -16,7 +23,6 @@ var header_row: HBoxContainer
 func _ready() -> void:
 	# Connect to generation spawn signal to refresh rows for the new cars
 	if agent_manager:
-		# Godot 4 style connection
 		agent_manager.population_spawned.connect(_on_population_spawned)
 
 	add_child(timer)
@@ -24,16 +30,46 @@ func _ready() -> void:
 	timer.timeout.connect(_on_timer_timeout)
 	timer.start()
 
+	_resolve_columns()
 	_build_header()
 	_build_rows()
 
+func _resolve_columns() -> void:
+	columns.clear()
+
+	if load_default_columns:
+		# Requires your LeaderboardColumn to implement make_default_columns()
+		columns += LeaderboardColumn.make_default_columns()
+
+	if !custom_columns.is_empty():
+		columns += custom_columns.duplicate()
+	
+	if columns.is_empty():
+		push_error("Leaderboard: No columns defined and load_default_columns is false. Please define custom columns or enable default columns.")
+
 func _on_population_spawned() -> void:
-	# Rebuild entries for the new generation and update once
+	# Re-evaluate schema (in case inspector changed), then rebuild
+	_resolve_columns()
+	_build_header()
 	_build_rows()
 	update_leaderboard()
 
 func _on_timer_timeout() -> void:
 	update_leaderboard()
+
+# Create a field (cell) from a column definition
+func _make_field(col: LeaderboardColumn, is_header: bool) -> LeaderboardField:
+	var f := LeaderboardField.new()
+	f.field_name = col.title
+	f.query_path = "" if is_header else col.query_path
+	f.align = col.align
+	f.column_weight = col.weight
+	f.min_width = col.min_width
+	f.decimals = col.decimals
+	f.format = col.format
+	if is_header:
+		f.text = col.title
+	return f
 
 func _build_header() -> void:
 	if header_row and header_row.is_inside_tree():
@@ -44,36 +80,14 @@ func _build_header() -> void:
 	add_child(header_row)
 	move_child(header_row, 0)
 
-	# Rank column
-	var rank_col := LeaderboardField.new()
-	rank_col.field_name = "#"
-	rank_col.align = HORIZONTAL_ALIGNMENT_RIGHT
-	rank_col.column_weight = 0.5
-	rank_col.min_width = 48
-	rank_col.text = rank_col.field_name
+	if columns.is_empty():
+		return
 
-	# Pilot column
-	var name_col := LeaderboardField.new()
-	name_col.field_name = "Pilot"
-	name_col.align = HORIZONTAL_ALIGNMENT_LEFT
-	name_col.column_weight = 2.0
-	name_col.min_width = 200
-	name_col.text = name_col.field_name
-
-	# Fitness column
-	var fit_col := LeaderboardField.new()
-	fit_col.field_name = "Fitness"
-	fit_col.align = HORIZONTAL_ALIGNMENT_RIGHT
-	fit_col.column_weight = 1.0
-	fit_col.min_width = 120
-	fit_col.text = fit_col.field_name
-
-	header_row.add_child(rank_col)
-	header_row.add_child(name_col)
-	header_row.add_child(fit_col)
+	for col in columns:
+		header_row.add_child(_make_field(col, true))
 
 func _build_rows() -> void:
-	if agent_manager == null:
+	if agent_manager == null or columns.is_empty():
 		return
 	# Clear any existing entries (preserve header at index 0)
 	for e in entries:
@@ -82,47 +96,22 @@ func _build_rows() -> void:
 		e.queue_free()
 	entries.clear()
 
-	# Create entries for all cars
+	# Create entries for all cars using the same schema
 	for car in agent_manager.cars:
 		if car == null:
 			continue
 		var entry := LeaderboardEntry.new()
 		entry.set_car(car)
 
-		# Rank field (no query_path, set later by set_rank)
-		var rank_field := LeaderboardField.new()
-		rank_field.field_name = "#"
-		rank_field.query_path = ""  # empty means: computed column
-		rank_field.align = HORIZONTAL_ALIGNMENT_RIGHT
-		rank_field.column_weight = 0.5
-		rank_field.min_width = 16
-		rank_field.format = "{value}"
-
-		var pilot_field := LeaderboardField.new()
-		pilot_field.field_name = "Pilot"
-		pilot_field.query_path = "car_data.pilot.get_full_name()"
-		pilot_field.align = HORIZONTAL_ALIGNMENT_LEFT
-		pilot_field.column_weight = 2.0
-		pilot_field.min_width = 200
-		pilot_field.format = "{value}"
-
-		var fitness_field := LeaderboardField.new()
-		fitness_field.field_name = "Fitness"
-		fitness_field.query_path = "car_data.fitness"
-		fitness_field.align = HORIZONTAL_ALIGNMENT_RIGHT
-		fitness_field.column_weight = 1.0
-		fitness_field.min_width = 120
-		fitness_field.decimals = 3
-		fitness_field.format = "{value}"
-
-		entry.add_field(rank_field)
-		entry.add_field(pilot_field)
-		entry.add_field(fitness_field)
+		for col in columns:
+			entry.add_field(_make_field(col, false))
 
 		entries.append(entry)
 		add_child(entry)     # after header
 
 func update_leaderboard() -> void:
+	if columns.is_empty():
+		return
 	# Update visible values (excluding "#" which is set after sorting)
 	for entry in entries:
 		entry.update_entry(car_telemetry)

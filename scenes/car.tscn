@@ -1,7 +1,11 @@
-[gd_scene load_steps=5 format=3 uid="uid://j5udtokn6d60"]
+[gd_scene load_steps=6 format=3 uid="uid://j5udtokn6d60"]
 
 [ext_resource type="Script" uid="uid://npmcexxqvm6k" path="res://scripts/car/car.gd" id="1_qt2eu"]
 [ext_resource type="Texture2D" uid="uid://di2bveb00kr2p" path="res://assets/cars/pitstop_car_11.png" id="2_50v30"]
+
+[sub_resource type="Curve" id="Curve_qt2eu"]
+_data = [Vector2(0, 1), 0.0, 0.0, 0, 0, Vector2(1, 0.656114), 0.0, 0.0, 0, 0]
+point_count = 2
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_40s5a"]
 size = Vector2(413, 134)
@@ -12,13 +16,13 @@ radius = 148.122
 [node name="Car" type="CharacterBody2D"]
 collision_layer = 2
 script = ExtResource("1_qt2eu")
-steering_angle = 30
-engine_power = 1800
-friction = -150
-drag = -0.2
-braking = -10
-slip_speed = 1200
-traction_fast = 5.0
+friction_ui = 3.6
+drag_ui = 0.7
+max_speed_forward = 3400
+traction_curve = SubResource("Curve_qt2eu")
+use_auto_top_speed = false
+target_top_speed = 3300.0
+log_tuning_info = false
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 rotation = 1.5708
