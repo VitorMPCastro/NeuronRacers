@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3 uid="uid://dq0lpaep1yq7l"]
+
+[ext_resource type="Script" uid="uid://wvt6cvrbyjyc" path="res://scripts/ui/leaderboard/leaderboard.gd" id="1_yj6ht"]
+
+[node name="LeaderBoard" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_yj6ht")

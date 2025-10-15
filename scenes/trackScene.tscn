@@ -1,16 +1,21 @@
-[gd_scene load_steps=12 format=3 uid="uid://dds42avibdl3k"]
+[gd_scene load_steps=17 format=3 uid="uid://dds42avibdl3k"]
 
+[ext_resource type="PackedScene" uid="uid://dq0lpaep1yq7l" path="res://scenes/ui/elements/leaderBoard.tscn" id="1_druem"]
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
 [ext_resource type="PackedScene" uid="uid://d4amq4tvfwyjq" path="res://scenes/checkpoint.tscn" id="2_ujoo2"]
 [ext_resource type="Script" uid="uid://ca20qk44hdbk0" path="res://scripts/controls/cameraScript.gd" id="3_5oo0w"]
 [ext_resource type="Script" uid="uid://cl7j5uca4c7rt" path="res://scripts/manager/gameManager.gd" id="3_fk43m"]
 [ext_resource type="Script" uid="uid://uydiwf60ene3" path="res://scripts/manager/agentManager.gd" id="4_3kn1h"]
+[ext_resource type="Script" uid="uid://rky2sws4fr0" path="res://scripts/telemetry/carTelemetry.gd" id="5_4qaac"]
 [ext_resource type="Script" uid="uid://orhx38b6607j" path="res://scripts/manager/raceProgressionManager.gd" id="5_bpni2"]
 [ext_resource type="Script" uid="uid://bmlt1pbx6klra" path="res://scripts/input_system/inputManager.gd" id="7_f3i7v"]
 [ext_resource type="Script" uid="uid://cctkukw41idmq" path="res://scripts/input_system/inputContext.gd" id="8_dsgpv"]
 [ext_resource type="Resource" uid="uid://dl621ckkmjlg8" path="res://assets/input/contexts/trackMode.tres" id="9_tmu72"]
 [ext_resource type="Script" uid="uid://bywd18j48kii4" path="res://scripts/manager/trackManager.gd" id="10_tmu72"]
 [ext_resource type="PackedScene" uid="uid://cg64jxxtbjk4p" path="res://scenes/pathTrack.tscn" id="11_405ff"]
+[ext_resource type="Script" uid="uid://duvl8thb11dea" path="res://scripts/telemetry/dataBroker.gd" id="12_druem"]
+[ext_resource type="Theme" uid="uid://d17a31yqq7wo0" path="res://assets/ui/themes/ui_window_theme.tres" id="14_f4mhn"]
+[ext_resource type="Script" uid="uid://2aswmjc74bxe" path="res://scripts/ui/leaderboard/leaderboardScroll.gd" id="14_p82p0"]
 
 [node name="TrackScene" type="Node2D"]
 
@@ -177,12 +182,15 @@ script = ExtResource("3_fk43m")
 script = ExtResource("4_3kn1h")
 car_scene = ExtResource("2_n1x8e")
 population_size = 100
-generation_time = 120.0
+generation_time = 30.0
 is_training = true
 elitism_percent = 0.1
 weight = 0.3
 mutate_chance = 0.2
 input_layer_neurons = 6
+
+[node name="CarTelemetry" type="Node2D" parent="GameManager/AgentManager"]
+script = ExtResource("5_4qaac")
 
 [node name="RaceProgressionManager" type="Node2D" parent="GameManager"]
 script = ExtResource("5_bpni2")
@@ -198,11 +206,25 @@ sample_step = 4.0
 track_width = 30.0
 curb_thickness = 1.0
 use_cubic_sampling = true
-debug_show_lines = true
+debug_show_sectors = true
 
 [node name="Track" parent="GameManager" instance=ExtResource("11_405ff")]
 scale = Vector2(30, 30)
 
+[node name="DataBroker" type="Node2D" parent="GameManager"]
+script = ExtResource("12_druem")
+
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("3_5oo0w")
 min_zoom = 0.02
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="ScrollContainer" type="ScrollContainer" parent="HUD"]
+offset_right = 40.0
+offset_bottom = 40.0
+theme = ExtResource("14_f4mhn")
+script = ExtResource("14_p82p0")
+
+[node name="LeaderBoard" parent="HUD/ScrollContainer" instance=ExtResource("1_druem")]
+layout_mode = 2

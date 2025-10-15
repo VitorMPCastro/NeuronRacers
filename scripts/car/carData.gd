@@ -1,6 +1,9 @@
 extends CharacterBody2D
 class_name CarData
 
+#BASIC INFO
+var pilot: Pilot
+
 #STATISTICS AND TELEMETRY
 var top_speed: float = 0.0:
 	set(value):

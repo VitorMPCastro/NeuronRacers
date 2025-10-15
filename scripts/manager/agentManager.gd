@@ -24,11 +24,22 @@ static var best_speed: int = -1
 var generation = 0
 var timer = 0.0
 @onready var trackOrigin = $"../../track/TrackOrigin"
+@onready var gm = self.find_parent("GameManager") as GameManager
+@onready var data_broker = gm.find_child("DataBroker") as DataBroker
+@onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
+
+# signal
+signal population_spawned
+signal generation_completed
 
 func _ready():
 	if !is_training:
 		return
 	spawn_population()
+	
+
+	if telemetry:
+		telemetry.sample_once(PackedStringArray(["car_data.pilot.pilot_first_name"]))
 
 func _physics_process(delta: float) -> void:
 	update_car_fitness()
@@ -58,6 +69,7 @@ func spawn_population(brains: Array = []):
 		add_child(car)
 		cars.append(car)
 	
+	population_spawned.emit()
 	print("População criada: ", cars.size())
 	
 func weighted_pick(cars: Array, total_fitness) -> Car:
@@ -70,6 +82,7 @@ func weighted_pick(cars: Array, total_fitness) -> Car:
 	return cars[-1]  # fallback in case of float precision issues
 
 func next_generation():
+	generation_completed.emit()
 	generation += 1
 	print("Geração: ", generation)
 	var elites = int(population_size * elitism_percent)

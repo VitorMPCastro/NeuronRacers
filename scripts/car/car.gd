@@ -44,9 +44,9 @@ var last_position: Vector2
 signal car_death
 signal car_spawn
 
-
 func _on_spawn():
 	self.car_data.timestamp_spawn = GameManager.global_time
+	self.car_data.pilot = PilotFactory.create_random_pilot()
 	var origin_node = get_tree().get_root().get_node("TrackScene/track/TrackOrigin")
 	last_position = global_position
 	RaceProgressionManager.register_car(self)
@@ -118,14 +118,7 @@ func handle_input() -> void:
 		elif throttle < -0.1:
 			acceleration = transform.x * braking * abs(throttle)
 	else:
-		acceleration = Vector2.ZERO
-		var turn = Input.get_axis("ui_left", "ui_right")
-		steer_direction = turn * deg_to_rad(steering_angle)
-
-		if Input.is_action_pressed("ui_up"):
-			acceleration = transform.x * engine_power
-		elif Input.is_action_pressed("ui_down"):
-			acceleration = transform.x * braking
+		return
 
 # 🛑 Atrito
 func apply_friction(delta: float) -> void:

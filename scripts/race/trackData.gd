@@ -96,6 +96,7 @@ func divide_sectors() -> Dictionary[String, Sector]:
 			end_index = center_line.points.size() - 1
 			sector_length = get_segment_length(start_index, end_index)
 		sectors[sector_name] = Sector.new(start_index, end_index, sector_length)
+		self.add_child(sectors[sector_name])
 
 	return sectors
 

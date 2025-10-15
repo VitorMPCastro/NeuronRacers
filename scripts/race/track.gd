@@ -9,7 +9,6 @@ class_name Track
 @export var curb_texture: Texture2D = null
 var border_texture_a: Texture2D = null
 var border_texture_b: Texture2D = null
-var polygon_node: Polygon2D = null
 var length: float = 0.0
 var center_line: Line2D = null
 var left_line: Line2D = null
@@ -28,12 +27,6 @@ func _ready() -> void:
 	# Connect the track_built signal to the TrackManager
 	track_built.connect(get_parent().get_node("TrackManager")._on_track_built)
 	track_built.connect(_on_track_built)
-
-# Convenience helper to free the generated polygon
-func free_polygon() -> void:
-	if polygon_node and polygon_node.is_inside_tree():
-		polygon_node.queue_free()
-		polygon_node = null
 
 # Draws a Line2D along the given Path2D's curve for quick visualization.
 # Returns the created Line2D (or null on failure).
@@ -68,9 +61,7 @@ func draw_centerline(path: Path2D, step: float = 4.0, color: Color = Color(0, 0,
 		line.closed = true
 
 	# Place it under the Path2D so local space matches.
-	var parent: Node = path
-	if polygon_node and is_instance_valid(polygon_node) and polygon_node.get_parent():
-		parent = polygon_node.get_parent()
+	var parent = path.find_parent("Track").find_child("LineParent")
 	parent.add_child(line)
 	line.owner = parent.owner
 	line.z_as_relative = false
@@ -174,6 +165,12 @@ func build_from_path(path: Path2D, width: float = 128.0, curb_thickness: float =
 
 	add_collision_to_polygons(track_limits_left)
 	add_collision_to_polygons(track_limits_right)
+	track_data = self.find_child("TrackData") as TrackData
+	track_data.track = self
+	track_data.center_line = center_line
+	track_data.calculate_track_length()
+	track_data.divide_sectors()
+	track_data.generate_checkpoints()
 
 	track_built.emit()
 
@@ -239,13 +236,31 @@ func add_collision_to_polygons(polygons: Array[Polygon2D]) -> void:
 		coll.owner = body.owner
 		coll.disabled = false
 
+func toggle_show_sectors(debug_show_sectors: bool) -> void:
+	for sector in track_data.sectors.values():
+		if debug_show_sectors:
+			self.draw_line_track_section(center_line, sector.start_index, sector.end_index)
+
+func draw_line_track_section(line: Line2D, start_index: int, end_index: int, color: Color = Color(randf_range(0,1),randf_range(0,1),randf_range(0,1), 1)) -> Line2D:
+	if start_index < 0 or end_index < 0 or start_index >= line.points.size() or end_index >= line.points.size():
+		return null
+
+	var highlight_line = Line2D.new()
+
+	for i in range(start_index, end_index + 1):
+		highlight_line.add_point(line.points[i])
+
+	highlight_line.default_color = color
+	
+	highlight_line.width = 4.0
+	highlight_line.visible = true
+	
+	var parent = line.find_parent("LineParent")
+	parent.add_child(highlight_line)
+
+	print("Highlighting track section from index %d to %d" % [start_index, end_index])
+	print("Color: ", color)
+	return highlight_line
+
 func _on_track_built() -> void:
-	if track_data == null:
-		track_data = self.find_child("TrackData") as TrackData
-		track_data.track = self
-		track_data.center_line = center_line
-		track_data.calculate_track_length()
-		track_data.divide_sectors()
-		track_data.generate_checkpoints()
-		for sector in track_data.sectors.values():
-			print("Sector from index %d to %d, length: %.2f" % [sector.start_index, sector.end_index, sector.sector_length])
+	print(track_data.get_telemetry_dictionary())
