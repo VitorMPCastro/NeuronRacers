@@ -6,7 +6,7 @@ class_name CollapsiblePanel
 		title = v
 		if is_instance_valid(_title_lbl): _title_lbl.text = v
 
-@export var start_collapsed: bool = false
+@export var start_collapsed: bool = true
 
 var _header: HBoxContainer
 var _toggle_btn: Button

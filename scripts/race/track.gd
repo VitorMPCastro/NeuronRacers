@@ -231,11 +231,22 @@ func add_collision_to_polygons(polygons: Array[Polygon2D]) -> void:
 		coll.disabled = false
 
 func toggle_show_sectors(debug_show_sectors: bool) -> void:
-	for sector in track_data.sectors.values():
-		if debug_show_sectors:
-			self.draw_line_track_section(center_line, sector.start_index, sector.end_index)
+	var parent := self.find_child("LineParent")
+	if parent == null:
+		return
 
-func draw_line_track_section(line: Line2D, start_index: int, end_index: int, color: Color = Color(randf_range(0,1),randf_range(0,1),randf_range(0,1), 1)) -> Line2D:
+	# Always clear any existing sector highlight lines (name pattern or group)
+	for child in parent.get_children():
+		if child is Line2D and (child.is_in_group("track_sector_lines") or child.name.ends_with("_Line")):
+			child.queue_free()
+
+	if debug_show_sectors:
+		for sector in track_data.sectors.values():
+			var ln := self.draw_line_track_section(center_line, sector.start_index, sector.end_index, str(sector.name, "_Line"), sector.highlight_color)
+			if is_instance_valid(ln):
+				ln.add_to_group("track_sector_lines")
+
+func draw_line_track_section(line: Line2D, start_index: int, end_index: int, name: String, color: Color = Color(randf_range(0,1),randf_range(0,1),randf_range(0,1), 1)) -> Line2D:
 	if start_index < 0 or end_index < 0 or start_index >= line.points.size() or end_index >= line.points.size():
 		return null
 
@@ -245,14 +256,19 @@ func draw_line_track_section(line: Line2D, start_index: int, end_index: int, col
 		highlight_line.add_point(line.points[i])
 
 	highlight_line.default_color = color
-	
+	highlight_line.name = name
 	highlight_line.width = 4.0
 	highlight_line.visible = true
+	highlight_line.add_to_group("track_sector_lines")   # tag for cleanup
 	
 	var parent = line.find_parent("LineParent")
 	parent.add_child(highlight_line)
 
 	return highlight_line
+
+func erase_line(line: Line2D) -> void:
+	if is_instance_valid(line):
+		line.queue_free()
 
 func _on_track_built() -> void:
 	pass
