@@ -58,6 +58,7 @@ var fitness: float:
 var origin_position: Vector2
 var max_distance = 0.0
 var last_position: Vector2
+var _heading_angle: float = 0.0
 
 # AI gating (read-only reference to AgentManager; Pilot handles gating)
 var _am: AgentManager = null
@@ -258,31 +259,37 @@ func _apply_friction_and_drag(_delta: float) -> void:
 
 # 🔄 Steering: preserve speed, rotate velocity by a max angular step
 func calculate_steering(delta: float) -> void:
-	if velocity == Vector2.ZERO and _ctrl_throttle == 0.0:
-		return
-
-	# Bicycle model to compute a target heading
-	var rear_wheel = position - transform.x * wheel_base * 0.5
-	var front_wheel = position + transform.x * wheel_base * 0.5
-	rear_wheel += velocity * delta
-	front_wheel += velocity.rotated(steer_direction) * delta
-	var target_heading := rear_wheel.direction_to(front_wheel)
-
+	# Speed and forward direction (from heading, not velocity)
 	var speed := velocity.length()
-	if speed <= 0.0:
-		rotation = target_heading.angle()
-		return
+	var fwd := Vector2.RIGHT.rotated(_heading_angle)
 
-	var current_ang := velocity.angle()
-	var target_ang := target_heading.angle()
-	var delta_ang := wrapf(target_ang - current_ang, -PI, PI)
+	# Bicycle-model curvature k = tan(delta)/wheel_base
+	var steer_rad = steer_direction               # already in radians (-max..+max)
+	var curvature := 0.0
+	if wheel_base > 0.0:
+		curvature = tan(steer_rad) / float(wheel_base)   # 1/px
 
-	var traction := _traction_for_speed()     # rad/sec
-	var max_turn := traction * delta
-	var apply_turn = clamp(delta_ang, -max_turn, max_turn)
+	# Yaw rate (rad/sec) := v * k, then clamp by traction curve (max turn rate)
+	var desired_yaw_rate := speed * curvature
+	var yaw_limit := _traction_for_speed()         # rad/sec from curve
+	var applied_yaw = clamp(desired_yaw_rate, -yaw_limit, yaw_limit)
 
-	velocity = velocity.rotated(apply_turn)   # preserve magnitude, change direction
-	rotation = velocity.angle()
+	# Integrate heading
+	_heading_angle = wrapf(_heading_angle + applied_yaw * delta, -PI, PI)
+	rotation = _heading_angle
+
+	# Rotate velocity toward the heading (preserve magnitude, stable when speed ~0)
+	if speed > 0.0001:
+		var v_ang := velocity.angle()
+		var tgt_ang := _heading_angle
+		var err := wrapf(tgt_ang - v_ang, -PI, PI)
+
+		# Limit how fast velocity aligns to heading (helps stability at low speed)
+		var align_rate := 10.0  # rad/sec, tweak as needed
+		var max_align := align_rate * delta
+		var align_turn = clamp(err, -max_align, max_align)
+
+		velocity = velocity.rotated(align_turn)
 
 func get_sensor_data() -> Array:
 	var rig := $RayParent as CarSensors

@@ -74,6 +74,7 @@ traction_curve = SubResource("Curve_qt2eu")
 use_auto_top_speed = false
 target_top_speed = 3300.0
 log_tuning_info = false
+control_smooth_hz = 40.0
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 rotation = 1.5708
@@ -97,3 +98,4 @@ rays = Array[ExtResource("4_3mrxu")]([SubResource("Resource_cp117"), SubResource
 normalize_output = false
 clamp_output = false
 auto_generate_on_ready = false
+draw_debug = false
