@@ -186,7 +186,7 @@ elitism_percent = 0.1
 weight = 0.3
 mutate_chance = 0.2
 input_layer_neurons = 6
-hidden_layers = PackedInt32Array(8, 8)
+hidden_layers = PackedInt32Array(12, 12)
 
 [node name="CarTelemetry" type="Node2D" parent="GameManager/AgentManager"]
 script = ExtResource("5_4qaac")

@@ -49,6 +49,9 @@ var timer = 0.0
 var _ai_timer: Timer
 var _ai_aps: float = 20.0
 
+# NEW: queued brains to use on next_generation
+var queued_brains_from_json: Array[MLP] = []
+
 
 func _ready():
 	if !is_training:
@@ -179,12 +182,18 @@ func next_generation():
 		total_fitness += car.fitness
 
 	sort_by_fitness()
+
+	# NEW: if a JSON was queued, use those brains instead of evolving
 	var new_brains: Array = []
-	var required_input := _required_input_size_from_cars()
-	for i in range(population_size):
-		var parent = weighted_pick(best_cars, total_fitness)
-		var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
-		new_brains.append(brain)
+	if !queued_brains_from_json.is_empty():
+		new_brains = queued_brains_from_json.duplicate(true)
+		queued_brains_from_json.clear()
+	else:
+		var required_input := _required_input_size_from_cars()
+		for i in range(population_size):
+			var parent = weighted_pick(best_cars, total_fitness)
+			var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
+			new_brains.append(brain)
 
 	print(generation_to_string()) if print_debug_generation else null
 
@@ -423,4 +432,53 @@ func is_all_cars_dead():
 	for car in cars:
 		if !car.crashed:
 			return false
+	return true
+
+# NEW: queue brains from a JSON file for the next generation (does not replace current gen immediately)
+func queue_generation_json(path: String, allow_resize: bool = true) -> bool:
+	var txt := _read_text_file(path)
+	if txt.is_empty():
+		push_error("queue_generation_json: File empty or not found: " + path)
+		return false
+	var data = JSON.parse_string(txt)
+	if typeof(data) != TYPE_DICTIONARY:
+		push_error("queue_generation_json: Invalid JSON.")
+		return false
+
+	var nn = data.get("nn", {})
+	var saved_in := int(nn.get("input", 0))
+	var saved_out := int(nn.get("output", output_layer_neurons))
+	var saved_hidden_layers := PackedInt32Array(nn.get("hidden_layers", PackedInt32Array()))
+	if saved_hidden_layers.size() == 0:
+		# legacy format support
+		saved_hidden_layers = PackedInt32Array([int(nn.get("hidden", hidden_layer_neurons))])
+
+	var brains_arr = data.get("brains", [])
+	if brains_arr.is_empty():
+		push_error("queue_generation_json: No brains in file.")
+		return false
+
+	# Optionally validate sizes; if !allow_resize, require exact match
+	if !allow_resize:
+		var required_input := _required_input_size_from_cars()
+		if saved_in != required_input or saved_hidden_layers != _current_hidden_sizes() or saved_out != output_layer_neurons:
+			push_error("queue_generation_json: NN sizes from file (%s,%s,%s) do not match current config (%s,%s,%s)."
+				% [saved_in, saved_hidden_layers, saved_out, required_input, _current_hidden_sizes(), output_layer_neurons])
+			return false
+
+	# Parse brains now; spawn_population will handle size mismatches gracefully per-car
+	queued_brains_from_json.clear()
+	for d in brains_arr:
+		var mlp := MLP.from_dict(d)
+		queued_brains_from_json.append(mlp)
+
+	# Optionally adopt evolution/APS settings from file (commented out; enable if desired)
+	# if data.has("evolution"):
+	# 	var evo = data["evolution"]
+	# 	if evo.has("elitism_percent"): elitism_percent = float(evo["elitism_percent"])
+	# 	if evo.has("mutate_chance"): mutate_chance = float(evo["mutate_chance"])
+	# 	if evo.has("weight"): weight = float(evo["weight"])
+	# if data.has("ai_actions_per_second"):
+	# 	ai_actions_per_second = float(data["ai_actions_per_second"])
+
 	return true

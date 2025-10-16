@@ -6,6 +6,7 @@ extends CanvasLayer
 var frame: UIFrame
 var _car_selector: OptionButton
 var _neuron_graph: NeuronGraph
+var _gen_file_dialog: FileDialog  # NEW
 
 func _ready() -> void:
 	frame = frame_scene.instantiate() as UIFrame
@@ -80,6 +81,19 @@ func _ready() -> void:
 	var btn_save := Button.new(); btn_save.text = "Save Generation"; btn_save.pressed.connect(func():
 		var m := _get_agent_manager(); if m: m.save_generation_to_json("", [], "manual save from HUD")
 	); actions.add_child(btn_save)
+
+	# NEW: Load from JSON (queues brains for next generation)
+	var btn_load := Button.new()
+	btn_load.text = "Load From JSON..."
+	btn_load.pressed.connect(func():
+		var gen_dir := OS.get_user_data_dir().path_join("generations")
+		# Try to open at user://generations if it exists, else default
+		if DirAccess.dir_exists_absolute(gen_dir):
+			_gen_file_dialog.current_dir = gen_dir
+		_gen_file_dialog.popup_centered()
+	)
+	actions.add_child(btn_load)
+
 	gen_content.add_child(actions)
 	gen_panel.set_content(gen_content)
 
@@ -89,6 +103,15 @@ func _ready() -> void:
 	# Bottom bar: Brain/Neuron graph for observed car
 	_build_bottom_brain_panel()
 	_refresh_neuron_graph()
+
+	# File dialog for loading generations (hidden until used)
+	_gen_file_dialog = FileDialog.new()
+	_gen_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_gen_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_gen_file_dialog.filters = PackedStringArray(["*.json ; JSON files"])
+	_gen_file_dialog.title = "Select generation JSON"
+	add_child(_gen_file_dialog)
+	_gen_file_dialog.file_selected.connect(_on_generation_json_selected)
 
 func _build_right_debug_tabs() -> void:
 	var panel := CollapsiblePanel.new()
@@ -400,3 +423,15 @@ func _refresh_neuron_graph() -> void:
 func _on_population_spawned_hud() -> void:
 	_rebuild_car_selector_items()
 	_refresh_neuron_graph()
+
+# NEW: callback after selecting a JSON file
+func _on_generation_json_selected(path: String) -> void:
+	var am := _get_agent_manager()
+	if am == null:
+		push_error("AgentManager not found; cannot queue JSON load.")
+		return
+	var ok = am.queue_generation_json(path, true)
+	if ok:
+		print("Queued generation JSON for next generation: ", path)
+	else:
+		push_error("Failed to queue generation JSON from: " + path)
