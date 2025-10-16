@@ -1,6 +1,5 @@
-[gd_scene load_steps=25 format=3 uid="uid://dds42avibdl3k"]
+[gd_scene load_steps=16 format=3 uid="uid://dds42avibdl3k"]
 
-[ext_resource type="PackedScene" uid="uid://dq0lpaep1yq7l" path="res://scenes/ui/elements/leaderBoard.tscn" id="1_druem"]
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
 [ext_resource type="PackedScene" uid="uid://d4amq4tvfwyjq" path="res://scenes/checkpoint.tscn" id="2_ujoo2"]
 [ext_resource type="Script" uid="uid://ca20qk44hdbk0" path="res://scripts/controls/cameraScript.gd" id="3_5oo0w"]
@@ -15,75 +14,7 @@
 [ext_resource type="PackedScene" uid="uid://cg64jxxtbjk4p" path="res://scenes/pathTrack.tscn" id="11_405ff"]
 [ext_resource type="Script" uid="uid://duvl8thb11dea" path="res://scripts/telemetry/dataBroker.gd" id="12_druem"]
 [ext_resource type="Script" uid="uid://c8rqv8wtrrob4" path="res://scripts/manager/spriteManager.gd" id="13_1trbk"]
-[ext_resource type="Theme" uid="uid://d17a31yqq7wo0" path="res://assets/ui/themes/ui_window_theme.tres" id="14_f4mhn"]
-[ext_resource type="Script" uid="uid://2aswmjc74bxe" path="res://scripts/ui/leaderboard/leaderboardScroll.gd" id="14_p82p0"]
-[ext_resource type="Script" uid="uid://cahq3i68ntbym" path="res://scripts/ui/leaderboard/leaderboardColumn.gd" id="18_0j55d"]
-
-[sub_resource type="Resource" id="Resource_0j55d"]
-script = ExtResource("18_0j55d")
-title = "Throttle"
-query_path = "_ctrl_throttle"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
-
-[sub_resource type="Resource" id="Resource_5pscc"]
-script = ExtResource("18_0j55d")
-title = "Steering"
-query_path = "_ctrl_steer"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
-
-[sub_resource type="Resource" id="Resource_pj36a"]
-script = ExtResource("18_0j55d")
-title = "Velocity"
-query_path = "velocity.length()"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
-
-[sub_resource type="Resource" id="Resource_6bh65"]
-script = ExtResource("18_0j55d")
-title = "Target Throttle"
-query_path = "_ctrl_target_throttle"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
-
-[sub_resource type="Resource" id="Resource_huyq5"]
-script = ExtResource("18_0j55d")
-title = "Target Steer"
-query_path = "_ctrl_target_steer"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
-
-[sub_resource type="Resource" id="Resource_vxl67"]
-script = ExtResource("18_0j55d")
-title = "Traction"
-query_path = "_traction_for_speed()"
-align = 0
-weight = 1.0
-min_width = 100
-decimals = 2
-format = "{value}"
-metadata/_custom_type_script = "uid://cahq3i68ntbym"
+[ext_resource type="Script" uid="uid://dfckqvqoarruf" path="res://scripts/ui/hud_setup.gd" id="15_5pscc"]
 
 [node name="TrackScene" type="Node2D"]
 
@@ -249,7 +180,7 @@ script = ExtResource("3_fk43m")
 [node name="AgentManager" type="Node2D" parent="GameManager"]
 script = ExtResource("4_3kn1h")
 car_scene = ExtResource("2_n1x8e")
-generation_time = 30.0
+generation_time = 120.0
 is_training = true
 elitism_percent = 0.1
 weight = 0.3
@@ -288,13 +219,4 @@ script = ExtResource("3_5oo0w")
 min_zoom = 0.02
 
 [node name="HUD" type="CanvasLayer" parent="."]
-
-[node name="ScrollContainer" type="ScrollContainer" parent="HUD"]
-offset_right = 40.0
-offset_bottom = 40.0
-theme = ExtResource("14_f4mhn")
-script = ExtResource("14_p82p0")
-
-[node name="LeaderBoard" parent="HUD/ScrollContainer" instance=ExtResource("1_druem")]
-layout_mode = 2
-custom_columns = Array[ExtResource("18_0j55d")]([SubResource("Resource_0j55d"), SubResource("Resource_5pscc"), SubResource("Resource_pj36a"), SubResource("Resource_6bh65"), SubResource("Resource_huyq5"), SubResource("Resource_vxl67")])
+script = ExtResource("15_5pscc")

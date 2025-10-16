@@ -1,0 +1,63 @@
+[gd_scene load_steps=2 format=3 uid="uid://bimd7khpf2n6c"]
+
+[ext_resource type="Script" uid="uid://6w306nxb6net" path="res://scripts/ui/uiFrame.gd" id="1"]
+
+[node name="UIFrame" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+side_bar_min_w = 40
+
+[node name="Root" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TopBar" type="PanelContainer" parent="Root"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TopBarContent" type="HBoxContainer" parent="Root/TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CenterRow" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="LeftBar" type="PanelContainer" parent="Root/CenterRow"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LeftBarContent" type="VBoxContainer" parent="Root/CenterRow/LeftBar"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CenterContent" type="Control" parent="Root/CenterRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="RightBar" type="PanelContainer" parent="Root/CenterRow"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="RightBarContent" type="VBoxContainer" parent="Root/CenterRow/RightBar"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BottomBar" type="PanelContainer" parent="Root"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BottomBarContent" type="HBoxContainer" parent="Root/BottomBar"]
+layout_mode = 2
+size_flags_horizontal = 3

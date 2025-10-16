@@ -15,6 +15,10 @@ class_name Car
 @export var traction_curve: Curve = Curve.new()  # maps speed (px/s) to max turn rate (rad/sec)
 @export var wheel_base = 65          # Distância entre eixos
 
+# AI input features (queried via telemetry/DataBroker, like the leaderboard)
+@export_group("AI Inputs")
+@export var ai_feature_paths: PackedStringArray = PackedStringArray(["velocity.length()"])  # add more paths if needed
+
 # TUNING
 @export var use_auto_top_speed: bool = true
 @export var target_top_speed: float = 1000.0  # desired straight-line speed (px/s)
@@ -45,7 +49,7 @@ var time_alive: float:
 	get():
 		return self.car_data.time_alive
 	set(value):
-		self.car_data.time_alive
+		self.car_data.time_alive = value
 var fitness: float:
 	get():
 		return self.car_data.fitness
@@ -107,6 +111,8 @@ func friction_coeff() -> float:
 func drag_coeff() -> float:
 	return max(0.0, drag_ui) / 10000.0
 
+@onready var _car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
+
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
@@ -145,18 +151,48 @@ func _physics_process(delta: float) -> void:
 	total_speed += velocity.length()
 	
 	for i in range(get_slide_collision_count()):
-		var collision = get_slide_collision(i)
+		var _collision = get_slide_collision(i)
 		die()
 
 func get_ai_inputs() -> Array:
-	# Currently: only ray sensor distances. Extend here if you add more inputs.
-	return get_sensor_data()
-
-func ai_input_size() -> int:
+	# Ray sensors (normalized)
+	var inputs: Array = []
 	var rig := $RayParent as CarSensors
 	if rig:
-		return rig.get_enabled_ray_count()
-	return 0
+		var packed: PackedFloat32Array = rig.get_values(self)
+		# Convert to Array to match MLP.forward signature
+		for i in packed.size():
+			inputs.append(packed[i])
+
+	# Telemetry features (queried via DataBroker, like leaderboard columns)
+	inputs.append_array(_get_telemetry_inputs())
+	return inputs
+
+func ai_input_size() -> int:
+	var ray_count := 0
+	var rig := $RayParent as CarSensors
+	if rig:
+		ray_count = rig.get_enabled_ray_count()
+	# Count telemetry features as additional inputs
+	return ray_count + int(ai_feature_paths.size())
+
+func _get_telemetry_inputs() -> Array:
+	var out: Array = []
+	if _car_telemetry == null or _car_telemetry.data_broker == null:
+		# Fallback zeros if telemetry is not available
+		for _i in ai_feature_paths.size():
+			out.append(0.0)
+		return out
+
+	for path in ai_feature_paths:
+		var v = _car_telemetry.data_broker.get_value(self, path)
+		# Ensure numeric; non-numeric values become 0.0
+		match typeof(v):
+			TYPE_INT, TYPE_FLOAT:
+				out.append(float(v))
+			_:
+				out.append(0.0)
+	return out
 
 # 📥 Input (AI is delegated to Pilot)
 func handle_input(delta: float) -> void:
@@ -199,7 +235,7 @@ func handle_input(delta: float) -> void:
 		# TODO: player input
 		pass
 
-func _apply_friction_and_drag(delta: float) -> void:
+func _apply_friction_and_drag(_delta: float) -> void:
 	# If nearly stopped and no input, snap to rest
 	if acceleration == Vector2.ZERO and velocity.length() < 1.0:
 		velocity = Vector2.ZERO

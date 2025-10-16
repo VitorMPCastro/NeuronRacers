@@ -1,0 +1,82 @@
+[gd_scene load_steps=11 format=3 uid="uid://2enmru3s1bhk"]
+
+[ext_resource type="Theme" uid="uid://d17a31yqq7wo0" path="res://assets/ui/themes/ui_window_theme.tres" id="1_votgp"]
+[ext_resource type="Script" uid="uid://2aswmjc74bxe" path="res://scripts/ui/leaderboard/leaderboardScroll.gd" id="2_eed6v"]
+[ext_resource type="PackedScene" uid="uid://dq0lpaep1yq7l" path="res://scenes/ui/elements/leaderBoard.tscn" id="3_73oey"]
+[ext_resource type="Script" uid="uid://cahq3i68ntbym" path="res://scripts/ui/leaderboard/leaderboardColumn.gd" id="4_m7cu8"]
+
+[sub_resource type="Resource" id="Resource_0j55d"]
+script = ExtResource("4_m7cu8")
+title = "Throttle"
+query_path = "_ctrl_throttle"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[sub_resource type="Resource" id="Resource_5pscc"]
+script = ExtResource("4_m7cu8")
+title = "Steering"
+query_path = "_ctrl_steer"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[sub_resource type="Resource" id="Resource_pj36a"]
+script = ExtResource("4_m7cu8")
+title = "Velocity"
+query_path = "velocity.length()"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[sub_resource type="Resource" id="Resource_6bh65"]
+script = ExtResource("4_m7cu8")
+title = "Target Throttle"
+query_path = "_ctrl_target_throttle"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[sub_resource type="Resource" id="Resource_huyq5"]
+script = ExtResource("4_m7cu8")
+title = "Target Steer"
+query_path = "_ctrl_target_steer"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[sub_resource type="Resource" id="Resource_vxl67"]
+script = ExtResource("4_m7cu8")
+title = "Traction"
+query_path = "_traction_for_speed()"
+align = 0
+weight = 1.0
+min_width = 100
+decimals = 2
+format = "{value}"
+metadata/_custom_type_script = "uid://cahq3i68ntbym"
+
+[node name="LeaderboardScrollContainer" type="ScrollContainer"]
+offset_right = 40.0
+offset_bottom = 40.0
+theme = ExtResource("1_votgp")
+script = ExtResource("2_eed6v")
+
+[node name="LeaderBoard" parent="." instance=ExtResource("3_73oey")]
+layout_mode = 2
+custom_columns = Array[ExtResource("4_m7cu8")]([SubResource("Resource_0j55d"), SubResource("Resource_5pscc"), SubResource("Resource_pj36a"), SubResource("Resource_6bh65"), SubResource("Resource_huyq5"), SubResource("Resource_vxl67")])
