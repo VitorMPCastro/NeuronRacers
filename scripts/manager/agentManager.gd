@@ -12,7 +12,8 @@ class_name AgentManager
 @export var mutate_chance: float = 0.1
 @export_subgroup("NN Layers")
 @export var input_layer_neurons: int = 5
-@export var hidden_layer_neurons: int = 8
+@export var hidden_layer_neurons: int = 8              # kept for backward compatibility
+@export var hidden_layers: PackedInt32Array = PackedInt32Array()   # NEW: use this if non-empty
 @export var output_layer_neurons: int = 2
 @export_category("Debug")
 @export var print_debug_generation: bool = false
@@ -92,9 +93,16 @@ func _update_ai_timer() -> void:
 		_ai_timer.stop()
 	_ai_timer.start()
 
+func _current_hidden_sizes() -> PackedInt32Array:
+	return hidden_layers if hidden_layers.size() > 0 else PackedInt32Array([hidden_layer_neurons])
+
+func _mlp_hidden_sizes(mlp: MLP) -> PackedInt32Array:
+	return mlp.hidden_sizes if mlp.hidden_sizes.size() > 0 else PackedInt32Array([mlp.hidden_size])
+
 func _required_input_size_from_cars() -> int:
+	# Prefer live car scene probe if available; otherwise use input_layer_neurons
 	if car_scene == null:
-		return input_layer_neurons  # fallback
+		return input_layer_neurons
 	var probe := car_scene.instantiate()
 	var size := 0
 	if probe is Car:
@@ -106,47 +114,49 @@ func _required_input_size_from_cars() -> int:
 func spawn_population(brains: Array = []):
 	cars.clear()
 
-	var required_input = _required_input_size_from_cars()
-	
+	var required_input := _required_input_size_from_cars()
+	var h_sizes := _current_hidden_sizes()
+
 	for i in range(population_size):
 		var car = car_scene.instantiate()
 		car.use_ai = true
 		car.position = trackOrigin.position
 
-		# Create or reuse a brain and assign to the car's pilot
 		var pilot := PilotFactory.create_random_pilot()
 		if brains.size() > i:
 			var base: MLP = brains[i]
-			if base.input_size == required_input and base.hidden_size == hidden_layer_neurons and base.output_size == output_layer_neurons:
-				# Use provided brain as-is (or clone if you prefer isolation)
+			var base_hidden := _mlp_hidden_sizes(base)
+			var sizes_match := (
+				base.input_size == required_input and
+				base_hidden == h_sizes and
+				base.output_size == output_layer_neurons
+			)
+			if sizes_match:
 				pilot.brain = base.clone()
 			else:
-				push_warning("Provided brain size mismatch (got %s,%s,%s; need %s,%s,%s). Reinitializing."
-					% [base.input_size, base.hidden_size, base.output_size, required_input, hidden_layer_neurons, output_layer_neurons])
-				pilot.brain = MLP.new(required_input, hidden_layer_neurons, output_layer_neurons)
+				push_warning("Provided brain size mismatch; reinitializing. Got in/hid/out=%s/%s/%s, need %s/%s/%s"
+					% [base.input_size, base_hidden, base.output_size, required_input, h_sizes, output_layer_neurons])
+				pilot.brain = MLP.new(required_input, h_sizes, output_layer_neurons)
 		else:
-			pilot.brain = MLP.new(required_input, hidden_layer_neurons, output_layer_neurons)
+			pilot.brain = MLP.new(required_input, h_sizes, output_layer_neurons)
 
 		car.car_data.pilot = pilot
-
-		# Connect AI tick gating to the pilot (pilot owns decisions)
 		ai_tick.connect(pilot.notify_ai_tick)
 
-		# Assign a car sprite via SpriteManager
 		if randomize_car_skins and sprite_manager:
 			var sprite := car.get_node_or_null("Sprite2D") as Sprite2D
 			if sprite:
-				var randomic_seed := int(i)  # stable per index; change to instance_id if preferred
-				var tex := sprite_manager.get_car_texture_for_pilot(pilot, randomic_seed)
+				var seed := int(i)
+				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed)
 				if tex:
 					sprite.texture = tex
 
 		add_child(car)
 		cars.append(car)
-	
+
 	population_spawned.emit()
 	print("População criada: ", cars.size())
-	
+
 func weighted_pick(cars: Array, total_fitness) -> Car:
 	var r = randf() * total_fitness
 	var cumulative = 0.0
@@ -158,146 +168,79 @@ func weighted_pick(cars: Array, total_fitness) -> Car:
 
 func next_generation():
 	generation_completed.emit()
-
-	if autosave_each_generation:
-		save_generation_to_json("", [], "autosave before evolve")
 	generation += 1
 	print("Geração: ", generation)
 	var elites = int(population_size * elitism_percent)
 	sort_by_fitness()
 	best_cars = cars.slice(0, elites)
-	
+
 	var total_fitness := 0.0
 	for car in best_cars:
 		total_fitness += car.fitness
-	
+
 	sort_by_fitness()
 	var new_brains: Array = []
-	var required_input = _required_input_size_from_cars()
+	var required_input := _required_input_size_from_cars()
 	for i in range(population_size):
 		var parent = weighted_pick(best_cars, total_fitness)
-		var brain = mutate(parent.car_data.pilot.brain, required_input)  # <— enforce input size
+		var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
 		new_brains.append(brain)
-	
-	# Cria nova população com os cérebros
+
 	print(generation_to_string()) if print_debug_generation else null
-	
+
 	clear_scene()
 	spawn_population(new_brains)
 
-# Faz mutação nos pesos do MLP
+# Faz mutação nos pesos do MLP (supports multi-layer)
 func mutate(brain: MLP, required_input_size: int):
+	var desired_hidden := _current_hidden_sizes()
+
 	var needs_resize := (
 		brain.input_size != required_input_size or
-		brain.hidden_size != hidden_layer_neurons or
+		_mlp_hidden_sizes(brain) != desired_hidden or
 		brain.output_size != output_layer_neurons
 	)
 
 	var new_brain: MLP = null
 	if needs_resize:
-		# Reinitialize to requested sizes (simple path). Optionally copy overlap here.
-		new_brain = MLP.new(required_input_size, hidden_layer_neurons, output_layer_neurons)
+		new_brain = MLP.new(required_input_size, desired_hidden, output_layer_neurons)
 	else:
 		new_brain = brain.clone()
 
-	# Apply mutations
-	for i in range(new_brain.w1.size()):
-		if randf() < mutate_chance:
-			new_brain.w1[i] += randf_range(-weight, weight)
+	# Mutate across all layers if available; otherwise legacy fields
+	if new_brain.weights.size() > 0 and new_brain.biases.size() == new_brain.weights.size():
+		for l in range(new_brain.weights.size()):
+			var w: PackedFloat32Array = new_brain.weights[l]
+			for i in range(w.size()):
+				if randf() < mutate_chance:
+					w[i] += randf_range(-weight, weight)
+			new_brain.weights[l] = w
 
-	for i in range(new_brain.w2.size()):
-		if randf() < mutate_chance:
-			new_brain.w2[i] += randf_range(-weight, weight)
-
-	for i in range(new_brain.b1.size()):
-		if randf() < mutate_chance:
-			new_brain.b1[i] += randf_range(-weight, weight)
-
-	for i in range(new_brain.b2.size()):
-		if randf() < mutate_chance:
-			new_brain.b2[i] += randf_range(-weight, weight)
+			var b: PackedFloat32Array = new_brain.biases[l]
+			for i in range(b.size()):
+				if randf() < mutate_chance:
+					b[i] += randf_range(-weight, weight)
+			new_brain.biases[l] = b
+	else:
+		for i in range(new_brain.w1.size()):
+			if randf() < mutate_chance:
+				new_brain.w1[i] += randf_range(-weight, weight)
+		for i in range(new_brain.w2.size()):
+			if randf() < mutate_chance:
+				new_brain.w2[i] += randf_range(-weight, weight)
+		for i in range(new_brain.b1.size()):
+			if randf() < mutate_chance:
+				new_brain.b1[i] += randf_range(-weight, weight)
+		for i in range(new_brain.b2.size()):
+			if randf() < mutate_chance:
+				new_brain.b2[i] += randf_range(-weight, weight)
 
 	return new_brain
 
-func update_car_fitness():
-	for car in cars:
-		if car:
-			if killswitch:
-				kill_stagnant_car(car)
-				car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
-
-func get_best_speed():
-	for car in cars:
-		if car:
-			var avg_speed = car.get_average_speed()
-			if avg_speed > AgentManager.best_speed:
-				AgentManager.best_speed = avg_speed
-	return AgentManager.best_speed
-
-func kill_stagnant_car(car):
-	var grace_period = 3.0
-	var active_cars = []
-	for c in cars:
-		if !c.crashed:
-			active_cars.append(c)
-	if cars.size() > active_cars.size():
-		if car.get_average_speed() < AgentManager.best_speed * 0.15 && grace_period < car.time_alive:
-			car.die()
-
-func sort_by_fitness():
-	cars.sort_custom(func(a, b): if a && b: return a.fitness > b.fitness)
-	var cars_by_fitness = cars.duplicate(true)
-	return cars_by_fitness
-
-func get_best_car() -> Node:
-	var sorted = sort_by_fitness()
-	for car in sorted:
-		if not car.crashed:
-			return car
-	return sorted[0]
-
-
-func clear_scene():
-	for c in cars:
-		c.queue_free()
-	cars.clear()
-	timer = 0.0
-
-func is_all_cars_dead():
-	for car in cars:
-		if !car.crashed:
-			return false
-	return true
-
-func generation_to_string(options: Dictionary = {
-	"car_obj": {"print": false, "once": false},
-	"car_fitness": {"print": false, "once": false},
-	"car_brain": {"print": false, "once": false},
-	"new_brains": {"print": true, "once": true}
-}) -> String:
-	
-	var generation_string = str("\n GENERATION ", generation)
-	var function_extractor = {
-		"car_obj": func(car = null) -> String: return car._to_string(), 
-		"car_fitness": func(car = null) -> String: return car.fitness, 
-		"car_brain": func(car = null) -> String: return car.brain,
-		"new_brains": func(new_brains: Array[MLP] = []) -> String: return str(new_brains.map(func(brain): brain._to_string()))
-	}
-	
-	for key in options as Dictionary:
-		if options[key]["print"]:
-			for car in cars:
-				generation_string += str("\n", key, ": ", function_extractor[key].call(car))
-				if options[key]["once"]:
-					break
-	
-	
-	return generation_string
-
+# JSON persistence: include hidden_layers array in addition to legacy "hidden"
 func save_generation_to_json(file_path: String = "", brains: Array = [], note: String = "") -> String:
 	var brains_to_save: Array = brains
 	if brains_to_save.is_empty():
-		# Collect from current cars
 		for c in cars:
 			if c and c.car_data and c.car_data.pilot and c.car_data.pilot.brain:
 				brains_to_save.append(c.car_data.pilot.brain)
@@ -308,13 +251,14 @@ func save_generation_to_json(file_path: String = "", brains: Array = [], note: S
 
 	var required_input := _required_input_size_from_cars()
 	var payload := {
-		"version": 1,
+		"version": 2,
 		"timestamp": Time.get_unix_time_from_system(),
 		"generation": generation,
 		"population_size": brains_to_save.size(),
 		"nn": {
 			"input": required_input,
 			"hidden": hidden_layer_neurons,
+			"hidden_layers": _current_hidden_sizes(),
 			"output": output_layer_neurons
 		},
 		"evolution": {
@@ -353,8 +297,11 @@ func load_generation_from_json(path: String, allow_resize: bool = false) -> void
 	var saved_gen := int(data.get("generation", 0))
 	var nn = data.get("nn", {})
 	var saved_in := int(nn.get("input", 0))
-	var saved_hid := int(nn.get("hidden", hidden_layer_neurons))
 	var saved_out := int(nn.get("output", output_layer_neurons))
+	var saved_hidden_layers := PackedInt32Array(nn.get("hidden_layers", PackedInt32Array()))
+	if saved_hidden_layers.size() == 0:
+		# Legacy
+		saved_hidden_layers = PackedInt32Array([int(nn.get("hidden", hidden_layer_neurons))])
 
 	var brains_arr = data.get("brains", [])
 	if brains_arr.is_empty():
@@ -367,13 +314,12 @@ func load_generation_from_json(path: String, allow_resize: bool = false) -> void
 		brains.append(mlp)
 
 	var required_input := _required_input_size_from_cars()
-	var same_sizes := (saved_in == required_input and saved_hid == hidden_layer_neurons and saved_out == output_layer_neurons)
+	var same_sizes := (saved_in == required_input and saved_hidden_layers == _current_hidden_sizes() and saved_out == output_layer_neurons)
 	if not same_sizes and not allow_resize:
 		push_error("Saved NN sizes (%s,%s,%s) do not match current config (%s,%s,%s). Set allow_resize=true or align config."
-			% [saved_in, saved_hid, saved_out, required_input, hidden_layer_neurons, output_layer_neurons])
+			% [saved_in, saved_hidden_layers, saved_out, required_input, _current_hidden_sizes(), output_layer_neurons])
 		return
 
-	# Optionally adopt saved evolution params
 	if data.has("evolution"):
 		var evo = data["evolution"]
 		if evo.has("elitism_percent"): elitism_percent = float(evo["elitism_percent"])
@@ -383,7 +329,6 @@ func load_generation_from_json(path: String, allow_resize: bool = false) -> void
 		ai_actions_per_second = float(data["ai_actions_per_second"])
 
 	clear_scene()
-	# If sizes mismatch, spawn_population will re-init those brains to required size (warning printed).
 	spawn_population(brains)
 	generation = saved_gen
 	timer = 0.0
@@ -405,3 +350,77 @@ func _read_text_file(path: String) -> String:
 	var txt := f.get_as_text()
 	f.close()
 	return txt
+
+func update_car_fitness():
+	for car in cars:
+		if car:
+			if killswitch:
+				kill_stagnant_car(car)
+				car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
+
+func get_best_speed():
+	for car in cars:
+		if car:
+			var avg_speed = car.get_average_speed()
+			if avg_speed > AgentManager.best_speed:
+				AgentManager.best_speed = avg_speed
+	return AgentManager.best_speed
+
+func kill_stagnant_car(car):
+	var grace_period = 3.0
+	var active_cars = []
+	for c in cars:
+		if !c.crashed:
+			active_cars.append(c)
+	if cars.size() > active_cars.size():
+		if car.get_average_speed() < AgentManager.best_speed * 0.15 && grace_period < car.time_alive:
+			car.die()
+
+func sort_by_fitness():
+	cars.sort_custom(func(a, b): if a && b: return a.fitness > b.fitness)
+	var cars_by_fitness = cars.duplicate(true)
+	return cars_by_fitness
+
+func get_best_car() -> Node:
+	var sorted = sort_by_fitness()
+	for car in sorted:
+		if not car.crashed:
+			return car
+	return sorted[0]
+
+func clear_scene():
+	for c in cars:
+		c.queue_free()
+	cars.clear()
+	timer = 0.0
+
+func generation_to_string(options: Dictionary = {
+	"car_obj": {"print": false, "once": false},
+	"car_fitness": {"print": false, "once": false},
+	"car_brain": {"print": false, "once": false},
+	"new_brains": {"print": true, "once": true}
+}) -> String:
+	
+	var generation_string = str("\n GENERATION ", generation)
+	var function_extractor = {
+		"car_obj": func(car = null) -> String: return car._to_string(), 
+		"car_fitness": func(car = null) -> String: return car.fitness, 
+		"car_brain": func(car = null) -> String: return car.brain,
+		"new_brains": func(new_brains: Array[MLP] = []) -> String: return str(new_brains.map(func(brain): brain._to_string()))
+	}
+	
+	for key in options as Dictionary:
+		if options[key]["print"]:
+			for car in cars:
+				generation_string += str("\n", key, ": ", function_extractor[key].call(car))
+				if options[key]["once"]:
+					break
+	
+	
+	return generation_string
+
+func is_all_cars_dead():
+	for car in cars:
+		if !car.crashed:
+			return false
+	return true
