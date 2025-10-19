@@ -72,22 +72,31 @@ func _on_spawn():
 	# Only create a Pilot if AgentManager didn’t set one
 	if self.car_data.pilot == null:
 		self.car_data.pilot = PilotFactory.create_random_pilot()
-	var origin_node = get_tree().get_root().get_node("TrackScene/track/TrackOrigin")
+	var origin_node = get_tree().get_root().get_node_or_null("TrackScene/track/TrackOrigin")
 	last_position = global_position
-	RaceProgressionManager.register_car(self)
+	if _rpm:
+		_rpm.register_car(self)
 	if origin_node:
 		origin_position = origin_node.global_position
 	else:
-		origin_position = global_position  # fallback: posição inicial
+		origin_position = global_position  # fallback
 
 func _on_death():
 	car_data.timestamp_death = GameManager.global_time
 	$Sprite2D.modulate.a = 0.3
 	set_physics_process(false)
 	crashed = true
+	if _rpm:
+		_rpm.unregister_car(self)
 
-func _on_cross_checkpoint(checkpoint):
-	self.car_data.collected_checkpoints.append(checkpoint)
+func _on_rpm_checkpoint_collected(car: Node, checkpoint_index: int, lap: int, t: float) -> void:
+	if car == self:
+		self.car_data.collected_checkpoints.append(checkpoint_index)
+
+func _on_rpm_lap_changed(car: Node, lap: int) -> void:
+	if car == self:
+		# Optional: react to lap change (UI flash, sound, etc.)
+		pass
 
 func _to_string() -> String:
 	return str("\ntime_alive: ", self.time_alive, "\ncrashed: ", self.crashed, "\nis_player: ", self.is_player, "\nmax_distance: ", self.max_distance, "\nuse_ai: ", self.use_ai)
@@ -113,12 +122,22 @@ func drag_coeff() -> float:
 	return max(0.0, drag_ui) / 10000.0
 
 @onready var _car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
+@onready var _rpm: RaceProgressionManager = get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
 
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
 	car_spawn.emit()
 	_am = get_parent() as AgentManager
+
+	# Register with RaceProgressionManager instance and subscribe to events
+	if _rpm:
+		_rpm.register_car(self)
+		if not _rpm.checkpoint_collected.is_connected(_on_rpm_checkpoint_collected):
+			_rpm.checkpoint_collected.connect(_on_rpm_checkpoint_collected)
+		if not _rpm.lap_changed.is_connected(_on_rpm_lap_changed):
+			_rpm.lap_changed.connect(_on_rpm_lap_changed)
+
 	# Auto-tune damping to reach target top speed (optional)
 	if use_auto_top_speed:
 		_retune_for_target_top_speed()
@@ -131,7 +150,9 @@ func _physics_process(delta: float) -> void:
 	handle_input(delta)
 	calculate_steering(delta)
 
-	RaceProgressionManager.update_car_progress(self, last_position, global_position)
+	# Progress tracking via instance RPM
+	if _rpm:
+		_rpm.update_car_progress(self, global_position, GameManager.global_time)
 	last_position = global_position
 
 	_apply_friction_and_drag(delta)
@@ -162,7 +183,7 @@ func get_ai_inputs() -> Array:
 	if rig:
 		var packed: PackedFloat32Array = rig.get_values(self)
 		# Convert to Array to match MLP.forward signature
-		for i in packed.size():
+		for i in range(packed.size()):
 			inputs.append(packed[i])
 
 	# Telemetry features (queried via DataBroker, like leaderboard columns)
@@ -173,7 +194,8 @@ func ai_input_size() -> int:
 	var ray_count := 0
 	var rig := $RayParent as CarSensors
 	if rig:
-		ray_count = rig.get_enabled_ray_count()
+		# Use CarSensors API; fallback to total rays when unavailable
+		ray_count = rig.get_enabled_ray_count() if rig.has_method("get_enabled_ray_count") else rig.rays.size()
 	# Count telemetry features as additional inputs
 	return ray_count + int(ai_feature_paths.size())
 
@@ -181,7 +203,7 @@ func _get_telemetry_inputs() -> Array:
 	var out: Array = []
 	if _car_telemetry == null or _car_telemetry.data_broker == null:
 		# Fallback zeros if telemetry is not available
-		for _i in ai_feature_paths.size():
+		for _i in range(ai_feature_paths.size()):
 			out.append(0.0)
 		return out
 

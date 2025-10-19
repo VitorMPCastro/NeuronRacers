@@ -270,7 +270,7 @@ func _make_race_progression_tab() -> Control:
 
 	var lbl := Label.new()
 	var rpm = _get_race_progression_manager()
-	var chk_count := (RaceProgressionManager.checkpoints.size() if rpm else 0)
+	var chk_count = (rpm.checkpoints.size() if rpm else 0)
 	lbl.text = "Checkpoints: %d" % chk_count
 	v.add_child(lbl)
 
@@ -278,14 +278,16 @@ func _make_race_progression_tab() -> Control:
 	btn_rebuild.text = "Rebuild checkpoints"
 	btn_rebuild.pressed.connect(func():
 		var r = _get_race_progression_manager(); if r: r._cache_checkpoints()
-		lbl.text = "Checkpoints: %d" % RaceProgressionManager.checkpoints.size()
+		lbl.text = "Checkpoints: %d" % (r.checkpoints.size() if r else 0)
 	)
 	v.add_child(btn_rebuild)
 
 	var btn_clear := Button.new()
 	btn_clear.text = "Clear progress"
 	btn_clear.pressed.connect(func():
-		RaceProgressionManager.car_progress.clear()
+		var r: RaceProgressionManager = _get_race_progression_manager()
+		if r:
+			r.car_state.clear()
 	)
 	v.add_child(btn_clear)
 
@@ -342,10 +344,12 @@ func _get_track_manager():
 	return null
 
 func _get_race_progression_manager():
-	var gm := get_tree().get_root().find_child("GameManager", true, false)
-	if gm:
-		return gm.find_child("RaceProgressionManager", true, false)
-	return null
+	var r := get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
+	if r == null:
+		var gm := get_tree().get_root().find_child("GameManager", true, false)
+		if gm:
+			r = gm.find_child("RaceProgressionManager", true, false)
+	return r
 
 func _get_car_sensors(car: Node) -> CarSensors:
 	if car == null:

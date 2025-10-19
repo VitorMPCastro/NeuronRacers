@@ -28,9 +28,17 @@ func decide(sensors: Array) -> Dictionary:
 	# Returns {"steer": -1..1, "throttle": -1..1}
 	if brain == null or sensors.is_empty():
 		return {"steer": 0.0, "throttle": 0.0}
-	var outputs := brain.forward(sensors)
-	var steer = clamp(float(outputs[0]), -1.0, 1.0)
-	var throttle = clamp(float(outputs[1]), -1.0, 1.0)
+
+	var out: Array = brain.forward(sensors) if brain.has_method("forward") else []
+	# Guard length and clamp
+	var steer := 0.0
+	var throttle := 0.0
+	if out.size() >= 2:
+		# Keep established mapping: [steer, throttle] or adjust if you used opposite order
+		steer = clamp(float(out[0]), -1.0, 1.0)
+		throttle = clamp(float(out[1]), -1.0, 1.0)
+	elif out.size() == 1:
+		steer = clamp(float(out[0]), -1.0, 1.0)
 	return {"steer": steer, "throttle": throttle}
 
 func consume_decision(actions_per_second: float) -> void:

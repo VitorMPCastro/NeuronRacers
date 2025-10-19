@@ -40,8 +40,8 @@ var best_cars = []
 static var best_speed: int = -1
 var generation = 0
 var timer = 0.0
-@onready var trackOrigin = $"../../track/TrackOrigin"
 @onready var gm = self.find_parent("GameManager") as GameManager
+@onready var track = gm.find_child("Track")
 @onready var data_broker = gm.find_child("DataBroker") as DataBroker
 @onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
 @onready var sprite_manager: SpriteManager = gm.find_child("SpriteManager") as SpriteManager
@@ -54,6 +54,10 @@ var queued_brains_from_json: Array[MLP] = []
 
 
 func _ready():
+	track.track_built.connect(_on_track_built)
+	add_to_group("agent_manager")
+
+func _on_track_built():
 	if !is_training:
 		return
 	_ai_timer = Timer.new()
@@ -68,7 +72,6 @@ func _ready():
 	DirAccess.make_dir_recursive_absolute(save_dir)
 
 	spawn_population()
-
 
 func _physics_process(delta: float) -> void:
 	update_car_fitness()
@@ -123,7 +126,7 @@ func spawn_population(brains: Array = []):
 	for i in range(population_size):
 		var car = car_scene.instantiate()
 		car.use_ai = true
-		car.position = trackOrigin.position
+		car.position = track.center_line.points[0]
 
 		var pilot := PilotFactory.create_random_pilot()
 		if brains.size() > i:
@@ -360,12 +363,30 @@ func _read_text_file(path: String) -> String:
 	f.close()
 	return txt
 
+func _get_rpm() -> RaceProgressionManager:
+	return get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
+
 func update_car_fitness():
+	var rpm := _get_rpm()
 	for car in cars:
 		if car:
 			if killswitch:
 				kill_stagnant_car(car)
-				car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
+
+			var dist_to_next := 0.0
+			var cps_collected := 0
+			if rpm:
+				var next_pos := rpm.get_next_checkpoint_position(car)
+				if next_pos != Vector2.ZERO:
+					dist_to_next = car.global_position.distance_to(next_pos)
+				if rpm.car_state.has(car):
+					cps_collected = int(rpm.car_state[car]["checkpoints"])
+
+			# Safe guards
+			if dist_to_next <= 0.0:
+				dist_to_next = 0.001
+
+			car.fitness = (100.0 / dist_to_next) + (1000.0 * cps_collected)
 
 func get_best_speed():
 	for car in cars:

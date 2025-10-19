@@ -7,6 +7,8 @@ var center_line: Line2D = null
 var sectors: Dictionary[String, Sector] = {}
 var checkpoints: Dictionary[String, int ] = {}
 
+func _ready() -> void:
+	add_to_group("track_data")
 
 func get_telemetry_dictionary() -> Dictionary:
 	var data := {
@@ -23,7 +25,6 @@ func calculate_track_length() -> float:
 		return 0.0
 	track_length = get_segment_length(0, center_line.points.size() - 1)
 	return track_length
-
 
 func find_closest_point_on_center_line(point: Vector2) -> Vector2:
 	if center_line == null or center_line.points.size() < 2:
@@ -114,4 +115,3 @@ func generate_checkpoints() -> Dictionary[String, int]:
 		checkpoints[checkpoint_name] = index
 
 	return checkpoints
-	

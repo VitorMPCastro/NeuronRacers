@@ -271,4 +271,5 @@ func erase_line(line: Line2D) -> void:
 		line.queue_free()
 
 func _on_track_built() -> void:
-	pass
+	print("Telemetry dictionary: %s" % track_data.get_telemetry_dictionary())
+	print("------")

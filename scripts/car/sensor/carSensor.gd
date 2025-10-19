@@ -1,129 +1,157 @@
 extends Node2D
 class_name CarSensors
 
+@export_category("Owner")
+@export var car_path: NodePath = ^".."    # by default, use parent as the car
+
 @export_category("Casting")
 @export var collision_mask: int = 1
 @export var exclude_owner: bool = true
-@export var rays: Array[SensorRay] = []
+@export var rays: Array[SensorRay] = []   # SensorRay is expected to have: enabled (bool), angle/angle_deg/angle_rad, max_distance (float)
 
-@export_category("Output")
-@export var normalize_output: bool = true          # true -> 0..1 (1=no hit within max)
-@export var no_hit_value: float = 1.0              # value used when no hit (if normalized)
-@export var clamp_output: bool = true              # clamp to [0..1] when normalized
+@export_category("Performance")
+@export var sample_every_n_physics_frames: int = 1
+@export var draw_debug: bool = false
 
-@export_category("Authoring helpers")
-@export var auto_generate_on_ready: bool = true
-@export var default_ray_count: int = 7
-@export var default_fov_deg: float = 120.0
-@export var default_max_length_px: float = 800.0
+var _frame_ctr: int = 0
+var _values_norm: PackedFloat32Array = PackedFloat32Array()
+var _values_raw: PackedFloat32Array = PackedFloat32Array()
 
-@export_category("Debug draw")
-@export var draw_debug: bool = true
-@export var hit_color: Color = Color(0.2, 1.0, 0.2, 0.9)
-@export var miss_color: Color = Color(1.0, 0.3, 0.3, 0.6)
-@export var hit_thickness: float = 2.0
-@export var miss_thickness: float = 1.0
-
-var _last_segments: Array = []              # Array[{from:Vector2, to:Vector2, hit:bool}]
-var _last_values_norm: PackedFloat32Array   # cached normalized values (size == enabled rays)
-var _last_values_raw: PackedFloat32Array    # cached raw distances in pixels
+@onready var _car: Node2D = get_node_or_null(car_path) as Node2D
 
 func _ready() -> void:
-	if rays.is_empty() and auto_generate_on_ready:
-		generate_even_rays(default_ray_count, default_fov_deg, default_max_length_px)
+	_resize_buffers()
 
-func generate_even_rays(count: int, fov_deg: float, max_len: float) -> void:
-	rays.clear()
-	if count <= 1:
-		var r := SensorRay.new()
-		r.angle_deg = 0.0
-		r.max_length_px = max(1.0, max_len)
-		rays.append(r)
+func _physics_process(_delta: float) -> void:
+	var target := _car if is_instance_valid(_car) else (get_parent() as Node2D)
+	if sample_every_n_physics_frames <= 1:
+		_cast(target)
 	else:
-		var half := fov_deg * 0.5
-		for i in range(count):
-			var t := float(i) / float(count - 1)
-			var angle := -half + t * fov_deg
-			var r := SensorRay.new()
-			r.angle_deg = angle
-			r.max_length_px = max(1.0, max_len)
-			rays.append(r)
-
-func get_enabled_ray_count() -> int:
-	var n := 0
-	for r in rays:
-		if r != null and r.enabled:
-			n += 1
-	return n
-
-# Main API: returns PackedFloat32Array (normalized if normalize_output==true)
-func get_values(owner_node: Node = null) -> PackedFloat32Array:
-	_cast(owner_node)
-	return _last_values_norm if normalize_output else _last_values_raw
-
-# Raw distances in pixels (always)
-func get_values_raw(owner_node: Node = null) -> PackedFloat32Array:
-	_cast(owner_node)
-	return _last_values_raw
-
-# Backward-compatible alias (returns Array[float])
-func sample(owner_node: Node = null) -> Array:
-	var p := get_values(owner_node)
-	var a: Array = p
-	return a
-
-func _cast(owner_node: Node) -> void:
-	_last_segments.clear()
-
-	var space := get_world_2d().direct_space_state
-	var origin := global_position
-	var basis_rot := global_rotation
-
-	var exclude: Array = []
-	if exclude_owner and owner_node:
-		exclude.append(owner_node)
-
-	var raw := PackedFloat32Array()
-	var norm := PackedFloat32Array()
-
-	for ray_def in rays:
-		if ray_def == null or !ray_def.enabled:
-			# Skip disabled rays (do not include in output)
-			continue
-
-		var dir := Vector2.RIGHT.rotated(deg_to_rad(ray_def.angle_deg) + basis_rot)
-		var max_len = max(1.0, ray_def.max_length_px)
-		var from := origin
-		var to = origin + dir * max_len
-
-		var params := PhysicsRayQueryParameters2D.create(from, to, collision_mask, exclude)
-		var hit := space.intersect_ray(params)
-
-		if hit.is_empty():
-			raw.push_back(max_len)
-			if normalize_output:
-				norm.push_back(no_hit_value)
-			_last_segments.append({ "from": from, "to": to, "hit": false })
-		else:
-			var hit_pos: Vector2 = hit["position"]
-			var dist := from.distance_to(hit_pos)
-			raw.push_back(dist)
-			if normalize_output:
-				var v = dist / max_len
-				norm.push_back(clamp(v, 0.0, 1.0) if clamp_output else v)
-			_last_segments.append({ "from": from, "to": hit_pos, "hit": true })
-
-	_last_values_raw = raw
-	_last_values_norm = norm if normalize_output else PackedFloat32Array()
-
+		_frame_ctr = (_frame_ctr + 1) % sample_every_n_physics_frames
+		if _frame_ctr == 0:
+			_cast(target)
 	if draw_debug:
 		queue_redraw()
 
-func _draw() -> void:
-	if !draw_debug:
+func _resize_buffers() -> void:
+	_values_norm.resize(rays.size())
+	_values_raw.resize(rays.size())
+
+func get_enabled_ray_count() -> int:
+	var count := 0
+	for r in rays:
+		if typeof(r) == TYPE_NIL:
+			continue
+		var on := true
+		if "enabled" in r:
+			on = bool(r.enabled)
+		count += 1 if on else 0
+	return count
+
+func get_values(owner_node: Node = null, force_sample: bool = false) -> PackedFloat32Array:
+	if force_sample:
+		var target := (owner_node as Node2D) if owner_node is Node2D else _car
+		_cast(target)
+	return _values_norm
+
+func get_values_raw(owner_node: Node = null, force_sample: bool = false) -> PackedFloat32Array:
+	if force_sample:
+		var target := (owner_node as Node2D) if owner_node is Node2D else _car
+		_cast(target)
+	return _values_raw
+
+func _cast(owner_node: Node2D) -> void:
+	if _values_norm.size() != rays.size():
+		_resize_buffers()
+	if owner_node == null:
+		# No valid owner; return max distances normalized to 1.0
+		for i in range(rays.size()):
+			var r = rays[i]
+			var md := (r.max_distance if r and "max_distance" in r else 200.0)
+			_values_raw[i] = md
+			_values_norm[i] = 1.0
 		return
-	for seg in _last_segments:
-		var from: Vector2 = seg["from"]
-		var to: Vector2 = seg["to"]
-		var hit: bool = seg["hit"]
-		draw_line(to_local(from), to_local(to), hit_color if hit else miss_color, hit_thickness if hit else miss_thickness)
+
+	var space := get_world_2d().direct_space_state
+	var origin := owner_node.global_position
+	var base_angle := owner_node.global_rotation
+
+	for i in range(rays.size()):
+		var r = rays[i]
+		if r == null:
+			_values_raw[i] = 0.0
+			_values_norm[i] = 0.0
+			continue
+		# Enabled flag (optional)
+		if "enabled" in r and not r.enabled:
+			_values_raw[i] = 0.0
+			_values_norm[i] = 0.0
+			continue
+
+		# Determine ray angle and length with robust fallbacks
+		var ang := 0.0
+		if "angle_rad" in r:
+			ang = float(r.angle_rad)
+		elif "angle" in r:        # assume radians
+			ang = float(r.angle)
+		elif "angle_deg" in r:
+			ang = deg_to_rad(float(r.angle_deg))
+		else:
+			# fan from -60..+60 degrees as a fallback
+			var n := max(1, rays.size() - 1)
+			ang = deg_to_rad(-60.0 + 120.0 * float(i) / float(n))
+
+		var max_d := 200.0
+		if "max_distance" in r:
+			max_d = float(r.max_distance)
+
+		var dir := Vector2.RIGHT.rotated(base_angle + ang)
+		var to := origin + dir * max_d
+
+		var params := PhysicsRayQueryParameters2D.create(origin, to, collision_mask)
+		if exclude_owner:
+			params.exclude = [owner_node.get_rid()]
+
+		var hit := space.intersect_ray(params)
+		var dist_raw := max_d
+		if not hit.is_empty():
+			var hit_pos: Vector2 = hit.get("position", to)
+			dist_raw = origin.distance_to(hit_pos)
+
+		_values_raw[i] = dist_raw
+		_values_norm[i] = clamp(dist_raw / max_d, 0.0, 1.0)
+
+func _draw() -> void:
+	if not draw_debug:
+		return
+	# Minimal debug: draw rays with lengths from cached raw values
+	var owner_node := _car if is_instance_valid(_car) else (get_parent() as Node2D)
+	if owner_node == null:
+		return
+	var origin := owner_node.global_position
+	var base_angle := owner_node.global_rotation
+
+	for i in range(rays.size()):
+		var r = rays[i]
+		if r == null:
+			continue
+		if "enabled" in r and not r.enabled:
+			continue
+
+		var ang := 0.0
+		if "angle_rad" in r:
+			ang = float(r.angle_rad)
+		elif "angle" in r:
+			ang = float(r.angle)
+		elif "angle_deg" in r:
+			ang = deg_to_rad(float(r.angle_deg))
+		else:
+			var n := max(1, rays.size() - 1)
+			ang = deg_to_rad(-60.0 + 120.0 * float(i) / float(n))
+
+		var max_d := (float(r.max_distance) if "max_distance" in r else 200.0)
+		var used_len := clamp(_values_raw[i], 0.0, max_d)
+		var dir := Vector2.RIGHT.rotated(base_angle + ang)
+		var to := origin + dir * used_len
+
+		draw_line(to_local(origin), to_local(to), Color(0.3, 1.0, 0.3, 0.8), 2.0)

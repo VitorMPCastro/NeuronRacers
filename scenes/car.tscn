@@ -94,8 +94,8 @@ shape = SubResource("CircleShape2D_k55xp")
 
 [node name="RayParent" type="Node2D" parent="."]
 script = ExtResource("3_jtldb")
+collision_mask = null
+exclude_owner = null
 rays = Array[ExtResource("4_3mrxu")]([SubResource("Resource_cp117"), SubResource("Resource_4clw4"), SubResource("Resource_ctevm"), SubResource("Resource_uraa1"), SubResource("Resource_gm33m"), SubResource("Resource_ugdpj"), SubResource("Resource_hylxu")])
-normalize_output = false
-clamp_output = false
-auto_generate_on_ready = false
-draw_debug = false
+sample_every_n_physics_frames = null
+draw_debug = null

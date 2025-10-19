@@ -10,7 +10,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1")
-side_bar_min_w = 40
 
 [node name="Root" type="VBoxContainer" parent="."]
 layout_mode = 1
