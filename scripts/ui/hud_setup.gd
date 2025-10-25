@@ -4,18 +4,34 @@ extends CanvasLayer
 @onready var leaderboard_container_scene := preload("res://scenes/ui/elements/leaderboard_container.tscn")
 
 var frame: UIFrame
-var _car_selector: OptionButton
+var _car_selector_top: OptionButton
+var _car_selector_tab: OptionButton
 var _neuron_graph: NeuronGraph
-var _gen_file_dialog: FileDialog  # NEW
+var _gen_file_dialog: FileDialog
+var _camera: Camera2D
+var _inputs_graph: InputAxesGraph
+
+# HUD-authoritative selection
+var _observed_car: Car = null
+var _always_track_best: bool = true
+var _always_best_poll_sec := 0.25
+var _always_best_accum := 0.0
+
+# NEW: Best car selection via DataBroker
+@export var best_car_score_path: String = "car_data.fitness"  # DataBroker expression to rank cars
+@export var best_car_skip_crashed: bool = true                # ignore crashed cars for "best"
 
 func _ready() -> void:
 	frame = frame_scene.instantiate() as UIFrame
-	add_child(frame)
-
 	# Listen for population changes to refresh UI
 	var am := _get_agent_manager()
 	if am:
 		am.population_spawned.connect(_on_population_spawned_hud)
+		# NEW: react to fitness changes at AI tick rate
+		if am.has_signal("ai_tick"):
+			am.ai_tick.connect(_on_ai_tick)
+	add_child(frame)
+	_camera = _get_camera()
 
 	# Left bar: Leaderboard inside a collapsible panel
 	var lb_container := leaderboard_container_scene.instantiate() as Control
@@ -87,7 +103,6 @@ func _ready() -> void:
 	btn_load.text = "Load From JSON..."
 	btn_load.pressed.connect(func():
 		var gen_dir := OS.get_user_data_dir().path_join("generations")
-		# Try to open at user://generations if it exists, else default
 		if DirAccess.dir_exists_absolute(gen_dir):
 			_gen_file_dialog.current_dir = gen_dir
 		_gen_file_dialog.popup_centered()
@@ -97,11 +112,14 @@ func _ready() -> void:
 	gen_content.add_child(actions)
 	gen_panel.set_content(gen_content)
 
+	# REMOVED: Fitness quick-edit row from the top bar (moved to bottom tabs)
+	# [deleted block that created row_fit_edit and frame.add_to_top(row_fit_edit)]
+
 	# Right bar: Debug tabs (Cars / Managers / Track)
 	_build_right_debug_tabs()
 
-	# Bottom bar: Brain/Neuron graph for observed car
-	_build_bottom_brain_panel()
+	# Bottom bar: tabs with Brain and Fitness
+	_build_bottom_tabs()
 	_refresh_neuron_graph()
 
 	# File dialog for loading generations (hidden until used)
@@ -112,6 +130,102 @@ func _ready() -> void:
 	_gen_file_dialog.title = "Select generation JSON"
 	add_child(_gen_file_dialog)
 	_gen_file_dialog.file_selected.connect(_on_generation_json_selected)
+
+	# Top bar: Spectate panel with car selector and highlight toggle
+	var spectate_row := HBoxContainer.new()
+	spectate_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var spectate_lbl := Label.new()
+	spectate_lbl.text = "Spectate:"
+	spectate_row.add_child(spectate_lbl)
+
+	_car_selector_top = OptionButton.new()
+	_car_selector_top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_car_selector_top.item_selected.connect(_on_car_selected_top)
+	spectate_row.add_child(_car_selector_top)
+
+	var btn_best_top := Button.new()
+	btn_best_top.text = "Best (B)"
+	btn_best_top.pressed.connect(func():
+		_always_track_best = false
+		var best := _compute_best_car()
+		if best: _set_observed_car(best, true)
+	)
+	spectate_row.add_child(btn_best_top)
+
+	var chk_highlight := CheckBox.new()
+	chk_highlight.text = "Highlight target"
+	chk_highlight.button_pressed = _camera and _camera.has_method("highlight_enabled") and _camera.highlight_enabled
+	chk_highlight.toggled.connect(func(on: bool):
+		var cam = _get_camera()
+		if cam and cam.has_method("highlight_enabled"):
+			cam.highlight_enabled = on
+		# Re-apply to current target to reflect change now
+		if cam and cam.has_method("set_target") and cam.has("target"):
+			cam.set_target(cam.get("target"))
+	)
+	spectate_row.add_child(chk_highlight)
+
+	var collapsible := CollapsiblePanel.new()
+	collapsible.title = "Spectate"
+	collapsible.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	collapsible.set_content(spectate_row)
+	collapsible.size_flags_vertical = 0
+	collapsible.set_content(spectate_row)
+
+	frame.add_to_top(collapsible)
+
+	# Ensure selectors are populated for the first population (signal may have fired before HUD connected)
+	_rebuild_car_selectors()
+	_pick_initial_observed()
+	_refresh_neuron_graph()
+	_refresh_input_graph()
+
+# NEW: keep camera following HUD’s observed car and poll fallback timer if needed
+func _process(delta: float) -> void:
+	var cam := _get_camera()
+	var car := _get_observed_car()
+	if cam and car:
+		if cam.has_method("spectate_car"):
+			cam.spectate_car(car)
+		else:
+			cam.set("target", car)
+
+	# Optional fallback polling (in case ai_tick isn't firing)
+	if _always_track_best:
+		_always_best_accum += delta
+		if _always_best_accum >= _always_best_poll_sec:
+			_always_best_accum = 0.0
+			var best := _compute_best_car()
+			if best and best != _observed_car:
+				_set_observed_car(best, true)
+
+# NEW: called each AI tick; switch to current best if needed
+func _on_ai_tick() -> void:
+	if !_always_track_best:
+		return
+	var best := _compute_best_car()
+	if best and best != _observed_car:
+		_set_observed_car(best, true)
+
+func _on_population_spawned_hud() -> void:
+	_rebuild_car_selectors()
+	_pick_initial_observed()
+	_refresh_neuron_graph()
+	_refresh_input_graph()
+	# NEW: reconnect to car deaths for immediate re-eval
+	var am := _get_agent_manager()
+	if am:
+		for c in am.cars:
+			if c and c.has_signal("car_death"):
+				# Use a unique lambda per car
+				c.car_death.connect(func():
+					if _always_track_best:
+						var best := _compute_best_car()
+						if best and best != _observed_car:
+							# if the best died, pick new best; if a slower car died, nothing changes
+							_set_observed_car(best, true)
+				)
 
 func _build_right_debug_tabs() -> void:
 	var panel := CollapsiblePanel.new()
@@ -152,16 +266,85 @@ func _make_cars_tab() -> Control:
 	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var am := _get_agent_manager()
 
-	# Select car
+	# Select car (pilot names)
 	var row_sel := HBoxContainer.new(); row_sel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var lbl := Label.new(); lbl.text = "Select car"; lbl.custom_minimum_size.x = 120; row_sel.add_child(lbl)
-	_car_selector = OptionButton.new(); _car_selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_rebuild_car_selector_items()
-	_car_selector.item_selected.connect(func(_idx: int):
+	_car_selector_tab = OptionButton.new(); _car_selector_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_car_selector_tab.item_selected.connect(func(_idx: int):
 		_refresh_neuron_graph()
+		# Optional: spectate immediately when selected in the tab as well
+		_on_car_selected_tab(_idx)
 	)
-	row_sel.add_child(_car_selector)
+	row_sel.add_child(_car_selector_tab)
+
+	# Spectate selected
+	var btn_spec := Button.new()
+	btn_spec.text = "Spectate Selected"
+	btn_spec.pressed.connect(func():
+		_on_car_selected_tab(_car_selector_tab.get_selected_id())
+	)
+	row_sel.add_child(btn_spec)
 	v.add_child(row_sel)
+
+	# Camera debug options (include highlight switch)
+	var cam_row := HBoxContainer.new(); cam_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var cam_lbl := Label.new(); cam_lbl.text = "Camera"; cam_lbl.custom_minimum_size.x = 120
+	cam_row.add_child(cam_lbl)
+
+	var btn_prev := Button.new(); btn_prev.text = "< Prev"
+	btn_prev.pressed.connect(func(): _select_relative(-1))
+	cam_row.add_child(btn_prev)
+
+	var btn_best := Button.new(); btn_best.text = "Best (B)"
+	btn_best.pressed.connect(func():
+		_always_track_best = false
+		var best := _compute_best_car()
+		if best: _set_observed_car(best, true)
+	)
+	cam_row.add_child(btn_best)
+
+	var chk_always := CheckBox.new(); chk_always.text = "Always Track Best (Shift+B)"
+	chk_always.button_pressed = _always_track_best
+	chk_always.toggled.connect(func(on: bool):
+		_always_track_best = on
+		if on:
+			var best := _compute_best_car()
+			if best: _set_observed_car(best, true)
+	)
+	cam_row.add_child(chk_always)
+
+	var chk_hl := CheckBox.new(); chk_hl.text = "Highlight target"
+	chk_hl.button_pressed = _camera and _camera.has_method("highlight_enabled") and _camera.highlight_enabled
+	chk_hl.toggled.connect(func(on: bool):
+		var cam := _get_camera()
+		if cam and cam.has_method("highlight_enabled"):
+			cam.highlight_enabled = on
+		if cam and cam.has_method("set_target") and cam.has("target"):
+			cam.set_target(cam.get("target"))
+	)
+	cam_row.add_child(chk_hl)
+
+	var btn_next := Button.new(); btn_next.text = "Next >"
+	btn_next.pressed.connect(func(): _select_relative(1))
+	cam_row.add_child(btn_next)
+
+	var btn_zoom_out := Button.new(); btn_zoom_out.text = "Zoom +"
+	btn_zoom_out.pressed.connect(func():
+		var cam := _get_camera()
+		if cam and cam.has_method("adjust_zoom"):
+			cam.adjust_zoom(cam.zoom_speed) # out
+	)
+	cam_row.add_child(btn_zoom_out)
+
+	var btn_zoom_in := Button.new(); btn_zoom_in.text = "Zoom -"
+	btn_zoom_in.pressed.connect(func():
+		var cam := _get_camera()
+		if cam and cam.has_method("adjust_zoom"):
+			cam.adjust_zoom(-cam.zoom_speed) # in
+	)
+	cam_row.add_child(btn_zoom_in)
+
+	v.add_child(cam_row)
 
 	# Toggle sensors debug for all cars
 	v.add_child(_make_check_row("Show sensors (all cars)", false, func(on: bool):
@@ -175,30 +358,326 @@ func _make_cars_tab() -> Control:
 	var row_btns := HBoxContainer.new(); row_btns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var btn_kill := Button.new(); btn_kill.text = "Crash Selected"
 	btn_kill.pressed.connect(func():
-		var m := _get_agent_manager(); if m and _car_selector.item_count > 0:
-			var idx := _car_selector.get_selected_id()
+		var m := _get_agent_manager(); if m and _car_selector_tab.item_count > 0:
+			var idx := _car_selector_tab.get_selected_id()
 			if idx >= 0 and idx < m.cars.size():
 				var car = m.cars[idx]
-				if car and car.has_variable("crashed"):
+				if car is Car:
 					car.crashed = true
+					if car.has_method("die"):
+						car.die()
 	)
 	row_btns.add_child(btn_kill)
 	v.add_child(row_btns)
 
 	return v
 
-func _rebuild_car_selector_items() -> void:
-	if _car_selector == null:
-		return
-	_car_selector.clear()
+# Populate both selectors
+func _rebuild_car_selectors() -> void:
 	var am := _get_agent_manager()
-	var cars = am.cars if am else []
-	for i in range(cars.size()):
-		var car = cars[i]
-		var car_name = car.name if car else "Car %d" % i
-		_car_selector.add_item(car_name, i)
-	if _car_selector.item_count > 0 and _car_selector.get_selected_id() == -1:
-		_car_selector.select(0)
+	var items: Array = []
+	if am and !am.cars.is_empty():
+		for i in range(am.cars.size()):
+			var car = am.cars[i]
+			var label := str(car.name)
+			if car and "car_data" in car and car.car_data and car.car_data.pilot and car.car_data.pilot.has_method("get_full_name"):
+				label = car.car_data.pilot.get_full_name()
+			items.append({"label": label, "id": i})
+	# Top selector
+	if _car_selector_top:
+		_car_selector_top.clear()
+		for it in items:
+			_car_selector_top.add_item(it.label, it.id)
+		if _car_selector_top.item_count > 0:
+			_car_selector_top.select(0)
+	# Tab selector
+	if _car_selector_tab:
+		_car_selector_tab.clear()
+		for it in items:
+			_car_selector_tab.add_item(it.label, it.id)
+		if _car_selector_tab.item_count > 0:
+			_car_selector_tab.select(0)
+
+func _on_car_selected_top(_idx: int) -> void:
+	var am := _get_agent_manager()
+	if am and _car_selector_top and _car_selector_top.item_count > 0:
+		var i := _car_selector_top.get_selected_id()
+		if i >= 0 and i < am.cars.size():
+			_always_track_best = false
+			_set_observed_car(am.cars[i], false)
+	# Keep tab selector in sync
+	if _car_selector_tab and _car_selector_top:
+		_car_selector_tab.select(_car_selector_top.get_selected_index())
+	_refresh_input_graph()
+
+func _on_car_selected_tab(_idx: int) -> void:
+	var am := _get_agent_manager()
+	if am and _car_selector_tab and _car_selector_tab.item_count > 0:
+		var i := _car_selector_tab.get_selected_id()
+		if i >= 0 and i < am.cars.size():
+			_always_track_best = false
+			_set_observed_car(am.cars[i], false)
+	# Keep top selector in sync
+	if _car_selector_top and _car_selector_tab:
+		_car_selector_top.select(_car_selector_tab.get_selected_index())
+	_refresh_input_graph()
+
+# Build bottom tabs (Brain + Fitness)
+func _build_bottom_tabs() -> void:
+	var tabs := TabContainer.new()
+	tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var brain := _make_bottom_brain_panel()
+	brain.name = "Brain"
+	tabs.add_child(brain)
+
+	var fitness := _make_bottom_fitness_panel()
+	fitness.name = "Fitness"
+	tabs.add_child(fitness)
+
+	# NEW: Inputs tab
+	var inputs := _make_bottom_inputs_panel()
+	inputs.name = "Inputs"
+	tabs.add_child(inputs)
+
+	frame.add_to_bottom(tabs)
+
+func _make_bottom_inputs_panel() -> Control:
+	var panel := CollapsiblePanel.new()
+	panel.title = "Inputs"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	_inputs_graph = InputAxesGraph.new()
+	_inputs_graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_inputs_graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.set_content(_inputs_graph)
+
+	_refresh_input_graph()
+	return panel
+
+func _refresh_input_graph() -> void:
+	if _inputs_graph == null:
+		return
+	_inputs_graph.set_car(_get_observed_car())
+
+# Brain panel (refactored to return a Control)
+func _make_bottom_brain_panel() -> Control:
+	var panel := CollapsiblePanel.new()
+	panel.title = "Brain"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var container := VBoxContainer.new()
+	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# Keep a square drawing area
+	var ar := AspectRatioContainer.new()
+	ar.ratio = 1.0
+	ar.stretch_mode = AspectRatioContainer.STRETCH_FIT
+	ar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	_neuron_graph = NeuronGraph.new()
+	_neuron_graph.fit_square = true
+	_neuron_graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_neuron_graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	ar.add_child(_neuron_graph)
+
+	container.add_child(ar)
+
+	# Controls row
+	var row := HBoxContainer.new(); row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var btn_refresh := Button.new(); btn_refresh.text = "Refresh"; btn_refresh.pressed.connect(_refresh_neuron_graph); row.add_child(btn_refresh)
+	var chk_bias := CheckBox.new(); chk_bias.text = "Show bias"; chk_bias.toggled.connect(func(on: bool):
+		if _neuron_graph: _neuron_graph.show_bias = on; _neuron_graph.queue_redraw()
+	); row.add_child(chk_bias)
+	container.add_child(row)
+
+	panel.set_content(container)
+	return panel
+
+# NEW: Fitness panel (moved from top bar)
+func _make_bottom_fitness_panel() -> Control:
+	var panel := CollapsiblePanel.new()
+	panel.title = "Custom Fitness"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var row1 := HBoxContainer.new(); row1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var chk := CheckBox.new()
+	chk.text = "Enable custom fitness"
+	chk.tooltip_text = "Toggle custom fitness expression (AgentManager.use_custom_fitness)"
+	var am := _get_agent_manager()
+	chk.button_pressed = (am and am.use_custom_fitness)
+	chk.toggled.connect(func(on: bool):
+		var m := _get_agent_manager(); if m: m.use_custom_fitness = on
+	)
+	row1.add_child(chk)
+
+	v.add_child(row1)
+
+	var row2 := HBoxContainer.new(); row2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var lbl := Label.new()
+	lbl.text = "Expression:"
+	lbl.tooltip_text = "Variables: total_checkpoints, distance_to_next_checkpoint, time_alive, speed, top_speed + any names set in AgentManager.fitness_variable_paths"
+	row2.add_child(lbl)
+
+	var le := LineEdit.new()
+	am = _get_agent_manager()
+	le.placeholder_text = "e.g. total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)"
+	le.text = (am.fitness_expression if am else "")
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.text_submitted.connect(func(txt: String):
+		var m := _get_agent_manager(); if m: m.fitness_expression = txt
+	)
+	le.focus_exited.connect(func():
+		var m := _get_agent_manager(); if m: m.fitness_expression = le.text
+	)
+	row2.add_child(le)
+
+	var btn := Button.new()
+	btn.text = "Apply"
+	btn.pressed.connect(func():
+		var m := _get_agent_manager(); if m: m.fitness_expression = le.text
+	)
+	row2.add_child(btn)
+
+	v.add_child(row2)
+
+	var help := Label.new()
+	help.text = "Built-ins: total_checkpoints, distance_to_next_checkpoint, time_alive, speed, top_speed"
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+
+	panel.set_content(v)
+	return panel
+
+# Selection helpers -----------------------------------------------------------
+
+func _compute_best_car() -> Car:
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty():
+		return null
+
+	var db := _get_data_broker()
+	# Fallback to previous behavior if broker/expr is missing
+	if db == null or best_car_score_path.strip_edges() == "":
+		if am.has_method("get_best_car"):
+			var best := am.get_best_car()
+			if best: return best
+		for c in am.cars:
+			if c and (!best_car_skip_crashed or !c.crashed):
+				return c
+		return am.cars[0]
+
+	var best: Car = null
+	var best_score := -1.0e100
+	for c in am.cars:
+		if c == null:
+			continue
+		if best_car_skip_crashed and c.crashed:
+			continue
+		var v = db.get_value(c, best_car_score_path)
+		var s := 0.0
+		match typeof(v):
+			TYPE_FLOAT, TYPE_INT:
+				s = float(v)
+			TYPE_BOOL:
+				s = (1.0 if v else 0.0)
+			TYPE_STRING:
+				# try parse numeric strings
+				var p := str(v)
+				s = float(p) if p.is_valid_float() else 0.0
+			_:
+				s = 0.0
+		if s > best_score:
+			best_score = s
+			best = c
+
+	if best:
+		return best
+
+	# Last resort
+	if am.has_method("get_best_car"):
+		return am.get_best_car()
+	return am.cars[0]
+
+func _pick_initial_observed() -> void:
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty():
+		_observed_car = null
+		return
+	var target := _compute_best_car() if _always_track_best else null
+	if target == null:
+		for c in am.cars:
+			if c and !c.crashed:
+				target = c
+				break
+	if target == null:
+		target = am.cars[0]
+	_set_observed_car(target, true)
+
+func _set_observed_car(car: Car, update_selectors: bool = true) -> void:
+	if car == _observed_car:
+		return
+	_observed_car = car
+	if update_selectors:
+		var am := _get_agent_manager()
+		if am:
+			var idx := am.cars.find(car)
+			if idx >= 0:
+				if _car_selector_top and _car_selector_top.item_count > 0:
+					_car_selector_top.select(idx)
+				if _car_selector_tab and _car_selector_tab.item_count > 0:
+					_car_selector_tab.select(idx)
+	_refresh_neuron_graph()
+	_refresh_input_graph()
+
+func _select_relative(step: int) -> void:
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty():
+		return
+	var n := am.cars.size()
+	var cur := am.cars.find(_observed_car)
+	if cur < 0: cur = 0
+	var next := (cur + step) % n
+	if next < 0: next += n
+	var car = am.cars[next]
+	if car:
+		_always_track_best = false
+		_set_observed_car(car, true)
+
+# Use observed car everywhere -------------------------------------------------
+
+func _get_observed_car() -> Car:
+	if _observed_car and is_instance_valid(_observed_car):
+		return _observed_car
+	# Fallback to previous logic
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty():
+		return null
+	if _car_selector_top and _car_selector_top.item_count > 0:
+		var id := _car_selector_top.get_selected_id()
+		if id >= 0 and id < am.cars.size():
+			return am.cars[id]
+	for c in am.cars:
+		if c and !c.crashed:
+			return c
+	return am.cars[0]
+
+func _refresh_neuron_graph() -> void:
+	if _neuron_graph == null:
+		return
+	_neuron_graph.set_brain_from_car(_get_observed_car())
 
 func _make_agent_manager_tab() -> Control:
 	var v := VBoxContainer.new()
@@ -270,7 +749,7 @@ func _make_race_progression_tab() -> Control:
 
 	var lbl := Label.new()
 	var rpm = _get_race_progression_manager()
-	var chk_count := (RaceProgressionManager.checkpoints.size() if rpm else 0)
+	var chk_count = (rpm.checkpoints.size() if rpm else 0)
 	lbl.text = "Checkpoints: %d" % chk_count
 	v.add_child(lbl)
 
@@ -278,14 +757,14 @@ func _make_race_progression_tab() -> Control:
 	btn_rebuild.text = "Rebuild checkpoints"
 	btn_rebuild.pressed.connect(func():
 		var r = _get_race_progression_manager(); if r: r._cache_checkpoints()
-		lbl.text = "Checkpoints: %d" % RaceProgressionManager.checkpoints.size()
+		lbl.text = "Checkpoints: %d" % rpm.checkpoints.size()
 	)
 	v.add_child(btn_rebuild)
 
 	var btn_clear := Button.new()
 	btn_clear.text = "Clear progress"
 	btn_clear.pressed.connect(func():
-		RaceProgressionManager.car_progress.clear()
+		rpm.car_progress.clear()
 	)
 	v.add_child(btn_clear)
 
@@ -335,6 +814,14 @@ func _get_agent_manager() -> AgentManager:
 		am = get_tree().get_root().find_child("AgentManager", true, false) as AgentManager
 	return am
 
+# NEW: DataBroker lookup
+func _get_data_broker() -> DataBroker:
+	var gm := get_tree().get_root().find_child("GameManager", true, false)
+	if gm:
+		return gm.find_child("DataBroker", true, false) as DataBroker
+	# group fallback if you tag it
+	return get_tree().get_first_node_in_group("data_broker") as DataBroker
+
 func _get_track_manager():
 	var gm := get_tree().get_root().find_child("GameManager", true, false)
 	if gm:
@@ -363,68 +850,33 @@ func _get_car_sensors(car: Node) -> CarSensors:
 			stack.push_back(c)
 	return null
 
-func _build_bottom_brain_panel() -> void:
-	var panel := CollapsiblePanel.new()
-	panel.title = "Brain"
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+# Camera lookup (restored)
+func _get_camera() -> Camera2D:
+	if is_instance_valid(_camera):
+		return _camera
+	var root := get_tree().get_root()
 
-	var container := VBoxContainer.new()
-	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# By group (preferred if you tag it)
+	var cam := get_tree().get_first_node_in_group("game_camera") as Camera2D
+	if cam:
+		return cam
 
-	# Keep a square drawing area
-	var ar := AspectRatioContainer.new()
-	ar.ratio = 1.0
-	ar.stretch_mode = AspectRatioContainer.STRETCH_FIT
-	ar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# By name anywhere in tree
+	cam = root.find_child("Camera2D", true, false) as Camera2D
+	if cam:
+		return cam
 
-	_neuron_graph = NeuronGraph.new()
-	_neuron_graph.fit_square = true
-	_neuron_graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_neuron_graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	ar.add_child(_neuron_graph)
+	# Fallback: first Camera2D found by traversal
+	var stack: Array[Node] = [root]
+	while stack.size() > 0:
+		var n = stack.pop_back()
+		if n is Camera2D:
+			return n as Camera2D
+		for c in n.get_children():
+			stack.push_back(c)
 
-	container.add_child(ar)
+	return null
 
-	# Controls row
-	var row := HBoxContainer.new(); row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var btn_refresh := Button.new(); btn_refresh.text = "Refresh"; btn_refresh.pressed.connect(_refresh_neuron_graph); row.add_child(btn_refresh)
-	var chk_bias := CheckBox.new(); chk_bias.text = "Show bias"; chk_bias.toggled.connect(func(on: bool):
-		if _neuron_graph: _neuron_graph.show_bias = on; _neuron_graph.queue_redraw()
-	); row.add_child(chk_bias)
-	container.add_child(row)
-
-	panel.set_content(container)
-	frame.add_to_bottom(panel)
-
-func _get_observed_car() -> Car:
-	# Prefer the selection from the Cars tab; fallback to best living car
-	var am := _get_agent_manager()
-	if am == null or am.cars.is_empty():
-		return null
-	if _car_selector and _car_selector.item_count > 0:
-		var id := _car_selector.get_selected_id()
-		if id >= 0 and id < am.cars.size():
-			return am.cars[id]
-	# Fallback: best living (if you have a helper, else first non-crashed)
-	for c in am.cars:
-		if c and !c.crashed:
-			return c
-	return am.cars[0]
-
-func _refresh_neuron_graph() -> void:
-	if _neuron_graph == null:
-		return
-	var car := _get_observed_car()
-	_neuron_graph.set_brain_from_car(car)
-
-func _on_population_spawned_hud() -> void:
-	_rebuild_car_selector_items()
-	_refresh_neuron_graph()
-
-# NEW: callback after selecting a JSON file
 func _on_generation_json_selected(path: String) -> void:
 	var am := _get_agent_manager()
 	if am == null:

@@ -1,86 +1,232 @@
 extends Node
 class_name RaceProgressionManager
 
-# Lista de checkpoints (Nodes com dois filhos: "A" e "B")
-@export var checkpoint_nodes: Array[NodePath] = []
+signal checkpoints_changed
+signal checkpoint_collected(car: Node, checkpoint_index: int, lap: int, t: float)
+signal lap_changed(car: Node, lap: int)
 
-# Lista de pares de pontos que formam os segmentos dos checkpoints
-static var checkpoints: Array = []
+# Singleton for static API compatibility
+static var _singleton: RaceProgressionManager = null
 
-# Progresso de cada carro: {car: {index: int, checkpoints: int}}
-static var car_progress: Dictionary = {}
+@export var track_path: NodePath
+@export var track_data_path: NodePath
 
-func _ready():
-	_cache_checkpoints()
+# Require the car to surpass this extra progress (in px) past the checkpoint to award it.
+# Prevents instant CP_0 at spawn jitter and helps with sensor noise.
+@export var award_progress_margin: float = 5.0
 
+@onready var track: Track = get_node_or_null(track_path) as Track
+@onready var track_data: TrackData = get_node_or_null(track_data_path) as TrackData
 
-func _cache_checkpoints():
-	"""
-	Preenche a lista de checkpoints como segmentos [(A, B), ...].
-	"""
+# Cached from TrackData
+var track_length: float = 0.0
+var checkpoints: Array[Vector2] = []                   # checkpoint world positions (for UI/debug)
+var _checkpoints_progress: PackedFloat32Array = []     # each cp absolute progress [0..track_length]
+
+# Per-car progression state (instance)
+# car_state[car] = { "index": int, "checkpoints": int, "time_collected": float,
+#                    "last_progress": float, "lap": int, "collected_ids": Array[int] }
+var car_state: Dictionary = {}
+
+# Tunables
+const WRAP_THRESHOLD := 0.4  # fraction of track_length to consider wrap-around
+const EPS := 0.001
+
+func _enter_tree() -> void:
+	_singleton = self
+
+func _ready() -> void:
+	add_to_group("race_progression")
+	_bind_track_refs()
+	_rebuild_cache()
+	if track and track.has_signal("track_built") and not track.track_built.is_connected(_on_track_built):
+		track.track_built.connect(_on_track_built)
+
+func _exit_tree() -> void:
+	if _singleton == self:
+		_singleton = null
+
+func _bind_track_refs() -> void:
+	# If not provided via exports, try to bind from scene
+	if track == null:
+		var gm := get_tree().get_root().find_child("GameManager", true, false)
+		if gm:
+			track = gm.find_child("Track", true, false) as Track
+	if track_data == null:
+		if track:
+			track_data = (track as Node).find_child("TrackData", true, false) as TrackData
+		if track_data == null:
+			track_data = get_tree().get_first_node_in_group("track_data") as TrackData
+
+func _on_track_built() -> void:
+	_rebuild_cache()
+	# Reset per-car last_progress to avoid false wrap on freshly rebuilt tracks
+	for car in car_state.keys():
+		var st = car_state[car]
+		st["last_progress"] = 0.0
+		st["lap"] = 0
+		car_state[car] = st
+
+func _rebuild_cache() -> void:
 	checkpoints.clear()
-	for cp_path in checkpoint_nodes:
-		var cp_node = get_node(cp_path)
-		var a = cp_node.get_node("A").global_position
-		var b = cp_node.get_node("B").global_position
-		checkpoints.append([a, b])
+	_checkpoints_progress = PackedFloat32Array()
+	track_length = 0.0
 
-
-static func register_car(car: Node):
-	"""
-	Registra um novo carro no sistema de progressão.
-	"""
-	car_progress[car] = {
-		"index": 0,
-		"checkpoints": 0,
-		"time_collected": 0.0
-	}
-
-
-static func update_car_progress(car: Node, old_pos: Vector2, new_pos: Vector2):
-	"""
-	Checa se o carro cruzou o próximo checkpoint.
-	"""
-	if not car_progress.has(car):
+	if track_data == null:
+		return
+	if track_data.center_line == null or track_data.center_line.points.size() < 2:
 		return
 
-	var current_index = car_progress[car]["index"]
-	if current_index >= checkpoints.size()-1:
-		car_progress[car]["index"] = 0
+	# Ensure TrackData prepared its structures (use provided tools if available)
+	if track_data.has_method("calculate_track_length"):
+		track_data.calculate_track_length()
+	if track_data.has_method("divide_sectors"):
+		track_data.divide_sectors()
+	if track_data.has_method("generate_checkpoints"):
+		track_data.generate_checkpoints()
 
-	var cp = checkpoints[current_index]
-	var crossed = Utils.segments_intersect(old_pos, new_pos, cp[0], cp[1])
+	track_length = track_data.track_length
 
-	if crossed:
-		car_progress[car]["index"] += 1
-		car_progress[car]["checkpoints"] += 1
-		car_progress[car]["time_collected"] = GameManager.global_time
-		car.car_data.collected_checkpoints.append(car_progress[car].duplicate())
-	
+	# Order checkpoint keys by numeric suffix: "Checkpoint_1".."Checkpoint_N"
+	var ordered: Array = track_data.checkpoints.keys()
+	ordered.sort_custom(func(a, b):
+		var ai := int(str(a).get_slice("_", 1))
+		var bi := int(str(b).get_slice("_", 1))
+		return ai < bi
+	)
 
+	var prog := PackedFloat32Array()
+	for k in ordered:
+		var idx := int(track_data.checkpoints[k])
+		idx = clamp(idx, 0, track_data.center_line.points.size() - 1)
+		var p_local: Vector2 = track_data.center_line.points[idx]
+		# Convert to world-space position for UI and distance queries
+		var p_world := track_data.track.to_global(p_local) if track_data.track else p_local
+		checkpoints.append(p_world)
 
-static func get_next_checkpoint_position(car: Node) -> Vector2:
-	"""
-	Retorna a posição central do próximo checkpoint para esse carro.
-	"""
-	if not car_progress.has(car):
+		# Absolute progress (always use local)
+		if track_data.has_method("get_segment_length"):
+			prog.append(track_data.get_segment_length(0, idx))
+		elif track_data.has_method("get_point_progress"):
+			prog.append(track_data.get_point_progress(p_local)) # FIX: use local, not world
+		else:
+			prog.append(float(idx))  # fallback monotonic
+
+	_checkpoints_progress = prog
+	checkpoints_changed.emit()
+
+func get_checkpoints_progress() -> PackedFloat32Array:
+	return _checkpoints_progress.duplicate()
+
+func register_car(car: Node) -> void:
+	car_state[car] = {
+		"index": 0,
+		"checkpoints": 0,
+		"time_collected": 0.0,
+		"last_progress": 0.0,
+		"lap": 0,
+		"collected_ids": []
+	}
+
+func unregister_car(car: Node) -> void:
+	car_state.erase(car)
+
+func update_car_progress(car: Node, new_pos: Vector2, t: float) -> void:
+	if not _can_progress():
+		return
+	if not car_state.has(car):
+		return
+
+	var st = car_state[car]
+	var last := float(st["last_progress"])
+	var lap := int(st["lap"])
+
+	# Compute progress in Track local space
+	var query_pos := new_pos
+	if track_data and track_data.track:
+		query_pos = track_data.track.to_local(new_pos)  # FIX: world -> local
+
+	var cur := 0.0
+	if track_data and track_data.has_method("get_point_progress"):
+		cur = clamp(track_data.get_point_progress(query_pos), 0.0, max(0.0, track_length))
+	else:
+		cur = last  # fallback: keep monotonic
+
+	# Wrap detection near start/end; increment lap to keep monotonic progress
+	if track_length > 0.0 and cur < last and (last - cur) > WRAP_THRESHOLD * track_length:
+		lap += 1
+		lap_changed.emit(car, lap)
+
+	# Monotonic progress across laps
+	var mprog := lap * track_length + cur
+
+	# Collect all checkpoints passed since last update (handles fast movers)
+	var idx := int(st["index"])
+	var collected: Array = st["collected_ids"]
+	var count := _checkpoints_progress.size()
+	if count > 0:
+		while true:
+			var target_prog := lap * track_length + float(_checkpoints_progress[idx])
+			# If the checkpoint is behind due to wrap, adjust
+			if target_prog < mprog - (track_length * 0.5):
+				target_prog += track_length
+
+			# Require a small margin to truly "pass" the CP
+			var target_with_margin = target_prog + max(0.0, award_progress_margin)
+
+			if mprog + EPS >= target_with_margin:
+				collected.append(idx)
+				st["checkpoints"] = int(st["checkpoints"]) + 1
+				st["time_collected"] = t
+				checkpoint_collected.emit(car, idx, lap, t)
+				idx = (idx + 1) % count
+				continue
+			break
+
+	# Store updated state
+	st["index"] = idx
+	st["last_progress"] = cur
+	st["lap"] = lap
+	st["collected_ids"] = collected
+	car_state[car] = st
+
+func get_next_checkpoint_position(car: Node) -> Vector2:
+	if not _can_progress() or not car_state.has(car):
 		return Vector2.ZERO
-
-	var idx = car_progress[car]["index"]
-	if idx >= checkpoints.size():
+	var st = car_state[car]
+	var idx := int(st["index"])
+	if idx < 0 or idx >= checkpoints.size():
 		return Vector2.ZERO
+	return checkpoints[idx]
 
-	var cp = checkpoints[idx]
-	return (cp[0] + cp[1]) * 0.5
-
-
-static func get_distance_to_next_checkpoint(car: Node) -> float:
-	"""
-	Distância até o próximo checkpoint (para usar como entrada da IA).
-	"""
-	if not car_progress.has(car):
+func get_distance_to_next_checkpoint(car: Node) -> float:
+	if not car:
 		return 0.0
+	var pos := (car as Node2D).global_position if car is Node2D else Vector2.ZERO
+	var next := get_next_checkpoint_position(car)
+	if next == Vector2.ZERO:
+		return 0.0
+	return pos.distance_to(next)
 
-	var car_pos = car.global_position
-	var next_cp = get_next_checkpoint_position(car)
-	return car_pos.distance_to(next_cp)
+func _can_progress() -> bool:
+	return track_data != null and track_length > 0.0 and _checkpoints_progress.size() > 0
+
+# -------- Static proxy API (backward compatible with previous usage) --------
+
+static func register_car_static(car: Node) -> void:
+	if _singleton: _singleton.register_car(car)
+
+static func unregister_car_static(car: Node) -> void:
+	if _singleton: _singleton.unregister_car(car)
+
+static func update_car_progress_static(car: Node, _old_pos: Vector2, new_pos: Vector2) -> void:
+	# Keep old signature, use current global time if available
+	if _singleton:
+		var now := (GameManager.global_time if "global_time" in GameManager else 0.0)
+		_singleton.update_car_progress(car, new_pos, now)
+
+static func get_next_checkpoint_position_static(car: Node) -> Vector2:
+	return _singleton.get_next_checkpoint_position(car) if _singleton else Vector2.ZERO
+
+static func get_distance_to_next_checkpoint_static(car: Node) -> float:
+	return _singleton.get_distance_to_next_checkpoint(car) if _singleton else 0.0

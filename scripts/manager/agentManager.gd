@@ -31,6 +31,17 @@ class_name AgentManager
 @export var autosave_each_generation: bool = false
 @export var autosave_prefix: String = "gen"   # file name prefix
 
+@export_category("Fitness")
+@export var use_custom_fitness: bool = true
+@export var fitness_expression: String = "total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)":
+	set(value):
+		fitness_expression = value
+		_rebuild_fitness_expression()
+@export var fitness_variable_paths: Dictionary = {}: # name -> DataBroker path on Car
+	set(value):
+		fitness_variable_paths = value
+		_rebuild_fitness_expression()
+
 signal population_spawned
 signal generation_completed
 signal ai_tick
@@ -40,8 +51,8 @@ var best_cars = []
 static var best_speed: int = -1
 var generation = 0
 var timer = 0.0
-@onready var trackOrigin = $"../../track/TrackOrigin"
 @onready var gm = self.find_parent("GameManager") as GameManager
+@onready var trackOrigin = gm.find_child("TrackOrigin") as Node2D
 @onready var data_broker = gm.find_child("DataBroker") as DataBroker
 @onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
 @onready var sprite_manager: SpriteManager = gm.find_child("SpriteManager") as SpriteManager
@@ -52,10 +63,17 @@ var _ai_aps: float = 20.0
 # NEW: queued brains to use on next_generation
 var queued_brains_from_json: Array[MLP] = []
 
+var _fitness_expr: Expression = Expression.new()
+var _fitness_inputs: PackedStringArray = PackedStringArray()
+var _fitness_expr_ok: bool = false
+const _FITNESS_FALLBACK := "total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)"
+
 
 func _ready():
 	if !is_training:
 		return
+	# Build fitness Expression once (editor can override both expression and variables)
+	_rebuild_fitness_expression()
 	_ai_timer = Timer.new()
 	_ai_timer.one_shot = false
 	_ai_timer.process_callback = Timer.TIMER_PROCESS_PHYSICS
@@ -66,7 +84,6 @@ func _ready():
 	_update_ai_timer()
 
 	DirAccess.make_dir_recursive_absolute(save_dir)
-
 	spawn_population()
 
 
@@ -123,8 +140,19 @@ func spawn_population(brains: Array = []):
 	for i in range(population_size):
 		var car = car_scene.instantiate()
 		car.use_ai = true
-		car.position = trackOrigin.position
 
+		# Compute spawn position:
+		var spawn_pos := Vector2.ZERO
+		# Prefer exact center_line first point if available
+		var track := gm.find_child("Track") as Track
+		if track and is_instance_valid(track.center_line) and track.center_line.points.size() > 0:
+			spawn_pos = track.to_global(track.center_line.points[0])
+		elif is_instance_valid(trackOrigin):
+			# Fallback: TrackOrigin node (in world space)
+			spawn_pos = trackOrigin.global_position
+
+		car.global_position = spawn_pos
+		# ...existing code...
 		var pilot := PilotFactory.create_random_pilot()
 		if brains.size() > i:
 			var base: MLP = brains[i]
@@ -360,12 +388,95 @@ func _read_text_file(path: String) -> String:
 	f.close()
 	return txt
 
+func _get_rpm() -> RaceProgressionManager:
+	return get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
+
+func _rebuild_fitness_expression() -> void:
+	# Built-in variable names we always provide
+	var builtin := PackedStringArray([
+		"total_checkpoints",
+		"distance_to_next_checkpoint",
+		"time_alive",
+		"speed",
+		"top_speed"
+	])
+	# Add user variables (keys of dictionary)
+	var user_vars := PackedStringArray()
+	for k in fitness_variable_paths.keys():
+		user_vars.push_back(String(k))
+	# Merge, preserve order: builtin then user
+	_fitness_inputs = PackedStringArray()
+	_fitness_inputs.append_array(builtin)
+	_fitness_inputs.append_array(user_vars)
+
+	var expr_str := fitness_expression if fitness_expression.strip_edges() != "" else _FITNESS_FALLBACK
+	_fitness_expr = Expression.new()
+	var err := _fitness_expr.parse(expr_str, _fitness_inputs)
+	_fitness_expr_ok = (err == OK)
+	if !_fitness_expr_ok:
+		push_warning("Fitness expression parse error. Using fallback. expr=" + expr_str)
+
+# Build the values array (same order as _fitness_inputs) for a given car
+func _build_fitness_inputs_for_car(car: Car, rpm: RaceProgressionManager) -> Array:
+	var values: Array = []
+	# Builtins (must match order in _rebuild_fitness_expression)
+	var total_cp := 0
+	if rpm and rpm.car_state.has(car):
+		total_cp = int(rpm.car_state[car]["checkpoints"])
+	var dist_next := 1e6
+	if rpm:
+		dist_next = rpm.get_distance_to_next_checkpoint(car)
+	dist_next = max(1.0, float(dist_next)) # avoid division by zero in user expr
+
+	var time_alive := float(car.time_alive)
+	var speed := float(car.velocity.length())
+	var top_speed := float(car.car_data.top_speed)
+
+	values.append(float(total_cp))
+	values.append(float(dist_next))
+	values.append(float(time_alive))
+	values.append(float(speed))
+	values.append(float(top_speed))
+
+	# User variables via DataBroker on the Car provider
+	if is_instance_valid(data_broker):
+		for k in fitness_variable_paths.keys():
+			var path := String(fitness_variable_paths[k])
+			var v = data_broker.get_value(car, path)
+			match typeof(v):
+				TYPE_INT, TYPE_FLOAT:
+					values.append(float(v))
+				_:
+					values.append(0.0)
+	else:
+		# No broker: append zeros for user vars
+		for _k in fitness_variable_paths.keys():
+			values.append(0.0)
+	return values
+
+func _eval_fitness(car: Car, rpm: RaceProgressionManager) -> float:
+	# Fast path using Expression if enabled and valid
+	if use_custom_fitness and _fitness_expr_ok and _fitness_inputs.size() > 0:
+		var inputs := _build_fitness_inputs_for_car(car, rpm)
+		var result = _fitness_expr.execute(inputs, null, false)
+		if typeof(result) == TYPE_FLOAT or typeof(result) == TYPE_INT:
+			return float(result)
+	# Fallback to default formula
+	var total_cp := 0
+	if rpm and rpm.car_state.has(car):
+		total_cp = int(rpm.car_state[car]["checkpoints"])
+	var dist := 1.0
+	if rpm:
+		dist = max(1.0, rpm.get_distance_to_next_checkpoint(car))
+	return float(total_cp) * 1000.0 + 1000.0 / dist
+
 func update_car_fitness():
+	var rpm := _get_rpm()
 	for car in cars:
 		if car:
 			if killswitch:
 				kill_stagnant_car(car)
-				car.fitness = (100/RaceProgressionManager.get_distance_to_next_checkpoint(car)) + (1000 * RaceProgressionManager.car_progress[car]["checkpoints"])
+			car.fitness = _eval_fitness(car, rpm)
 
 func get_best_speed():
 	for car in cars:

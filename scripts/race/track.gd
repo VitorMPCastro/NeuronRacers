@@ -271,4 +271,8 @@ func erase_line(line: Line2D) -> void:
 		line.queue_free()
 
 func _on_track_built() -> void:
-	pass
+	# Place TrackOrigin at the first point of the center line (in world space)
+	var origin := get_node_or_null("TrackOrigin") as Node2D
+	if origin and is_instance_valid(center_line) and center_line.points.size() > 0:
+		var p_local := center_line.points[0]
+		origin.global_position = self.to_global(p_local)

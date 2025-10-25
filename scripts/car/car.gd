@@ -12,6 +12,10 @@ class_name Car
 @export var braking = 450.0          # braking strength (positive)
 @export var max_speed_forward = 2500 # optional forward speed cap
 @export var max_speed_reverse = 250
+# Add reverse options
+@export var allow_reverse: bool = true
+@export var reverse_power_scale: float = 0.7         # fraction of engine_power used in reverse
+@export var reverse_engage_speed: float = 20.0        # px/s threshold to switch from braking to reverse drive
 @export var traction_curve: Curve = Curve.new()  # maps speed (px/s) to max turn rate (rad/sec)
 @export var wheel_base = 65          # Distância entre eixos
 
@@ -72,13 +76,8 @@ func _on_spawn():
 	# Only create a Pilot if AgentManager didn’t set one
 	if self.car_data.pilot == null:
 		self.car_data.pilot = PilotFactory.create_random_pilot()
-	var origin_node = get_tree().get_root().get_node("TrackScene/track/TrackOrigin")
 	last_position = global_position
-	RaceProgressionManager.register_car(self)
-	if origin_node:
-		origin_position = origin_node.global_position
-	else:
-		origin_position = global_position  # fallback: posição inicial
+	RaceProgressionManager.register_car_static(self)
 
 func _on_death():
 	car_data.timestamp_death = GameManager.global_time
@@ -113,6 +112,7 @@ func drag_coeff() -> float:
 	return max(0.0, drag_ui) / 10000.0
 
 @onready var _car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
+@onready var _rpm: RaceProgressionManager = get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
 
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
@@ -125,13 +125,18 @@ func _ready() -> void:
 		if log_tuning_info:
 			var v := _expected_terminal_speed()
 			print("Car damping tuned. friction_ui=", friction_ui, " (", friction_coeff(), "), drag_ui=", drag_ui, " (", drag_coeff(), "), expected_top_speed≈", v)
+	if _rpm:
+		_rpm.register_car(self)
 
 func _physics_process(delta: float) -> void:
 	acceleration = Vector2.ZERO
 	handle_input(delta)
 	calculate_steering(delta)
 
-	RaceProgressionManager.update_car_progress(self, last_position, global_position)
+	# Progress tracking via RPM instance
+	if _rpm:
+		_rpm.update_car_progress(self, global_position, GameManager.global_time)
+
 	last_position = global_position
 
 	_apply_friction_and_drag(delta)
@@ -206,7 +211,7 @@ func handle_input(delta: float) -> void:
 
 		# Update targets on ai_tick; keep applying every frame
 		if pilot.can_decide(aps):
-			var inputs = get_ai_inputs()  # <— use the declared inputs
+			var inputs = get_ai_inputs()
 			var act = pilot.decide(inputs)
 			_ctrl_target_steer = clamp(float(act.get("steer", 0.0)), -1.0, 1.0)
 			_ctrl_target_throttle = clamp(float(act.get("throttle", 0.0)), -1.0, 1.0)
@@ -226,12 +231,26 @@ func handle_input(delta: float) -> void:
 		var max_steer_rad = deg_to_rad(steering_angle)
 		steer_direction = steer_cmd * max_steer_rad
 
-		# Apply throttle/brake continuously (no extra delta here)
+		# Apply throttle/brake/reverse
+		var speed := velocity.length()
+		var fwd_speed := velocity.dot(transform.x)     # >0 forward, <0 backward
+
 		if throttle_cmd > 0.0:
+			# Forward drive
 			acceleration += transform.x * engine_power * throttle_cmd
-		elif throttle_cmd < 0.0 and velocity != Vector2.ZERO:
-			# Brake opposite to current motion
-			acceleration += -velocity.normalized() * braking * (-throttle_cmd)
+		elif throttle_cmd < 0.0:
+			if not allow_reverse:
+				# Brake only
+				if speed > 0.0:
+					acceleration += -velocity.normalized() * braking * (-throttle_cmd)
+			else:
+				# If still moving forward above threshold, brake first
+				if fwd_speed > reverse_engage_speed and speed > 0.0:
+					acceleration += -velocity.normalized() * braking * (-throttle_cmd)
+				else:
+					# Engage reverse drive (backward acceleration)
+					var rev_power = engine_power * reverse_power_scale
+					acceleration += -transform.x * rev_power * (-throttle_cmd)
 	else:
 		# TODO: player input
 		pass
@@ -304,6 +323,25 @@ func get_sensor_data() -> Array:
 	# Legacy fallback removed; ensure a CarSensors is present under RayParent
 	return []
 
+var _highlight_aura: HighlightAura = null
+var _highlighted: bool = false
+const HIGHLIGHT_Z := 1000
+
+func set_highlighted(on: bool) -> void:
+	_highlighted = on
+	z_as_relative = false
+	z_index = HIGHLIGHT_Z if on else 0
+	# Ensure an aura exists only when needed
+	if on:
+		if _highlight_aura == null:
+			_highlight_aura = HighlightAura.new()
+			_highlight_aura.z_index = HIGHLIGHT_Z + 1
+			add_child(_highlight_aura)
+		_highlight_aura.visible = true
+	else:
+		if _highlight_aura:
+			_highlight_aura.visible = false
+
 func die():
 	car_death.emit()
 
@@ -332,3 +370,18 @@ func _retune_for_target_top_speed() -> void:
 		a = (F - b * V) / (V * V)
 	# Write back UI-scaled values
 	drag_ui = max(a, 1e-6) * 10000.0
+
+# Returns normalized control axes dict:
+# { throttle: 0..1, brake: 0..1, steer: -1..1 }
+func get_control_axes() -> Dictionary:
+	# Use the car's internal control state directly (no typed-array callables)
+	var steer = clamp(_ctrl_steer, -1.0, 1.0)
+	var t = clamp(_ctrl_throttle, -1.0, 1.0)
+	var throttle = max(0.0, t)
+	var brake = max(0.0, -t)
+
+	return {
+		"throttle": throttle,
+		"brake": brake,
+		"steer": steer,
+	}

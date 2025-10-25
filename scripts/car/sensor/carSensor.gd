@@ -18,7 +18,7 @@ class_name CarSensors
 @export var default_max_length_px: float = 800.0
 
 @export_category("Debug draw")
-@export var draw_debug: bool = true
+@export var draw_debug: bool = false
 @export var hit_color: Color = Color(0.2, 1.0, 0.2, 0.9)
 @export var miss_color: Color = Color(1.0, 0.3, 0.3, 0.6)
 @export var hit_thickness: float = 2.0

@@ -97,5 +97,3 @@ script = ExtResource("3_jtldb")
 rays = Array[ExtResource("4_3mrxu")]([SubResource("Resource_cp117"), SubResource("Resource_4clw4"), SubResource("Resource_ctevm"), SubResource("Resource_uraa1"), SubResource("Resource_gm33m"), SubResource("Resource_ugdpj"), SubResource("Resource_hylxu")])
 normalize_output = false
 clamp_output = false
-auto_generate_on_ready = false
-draw_debug = false
