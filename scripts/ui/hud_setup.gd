@@ -17,9 +17,17 @@ var _always_track_best: bool = true
 var _always_best_poll_sec := 0.25
 var _always_best_accum := 0.0
 
+# NEW: show sensors for observed car
+var _show_current_sensors: bool = false
+
 # NEW: Best car selection via DataBroker
 @export var best_car_score_path: String = "car_data.fitness"  # DataBroker expression to rank cars
 @export var best_car_skip_crashed: bool = true                # ignore crashed cars for "best"
+
+# NEW: observed car label panel + overlay
+var _car_handle: CarHandlePanel = null
+var _car_handle_overlay: CarHandleLineOverlay = null
+var _show_car_handle: bool = true
 
 func _ready() -> void:
 	frame = frame_scene.instantiate() as UIFrame
@@ -32,6 +40,9 @@ func _ready() -> void:
 			am.ai_tick.connect(_on_ai_tick)
 	add_child(frame)
 	_camera = _get_camera()
+
+	# NEW: spawn one panel in HUD and an overlay line in world
+	_ensure_car_handle_panel()
 
 	# Left bar: Leaderboard inside a collapsible panel
 	var lb_container := leaderboard_container_scene.instantiate() as Control
@@ -191,7 +202,10 @@ func _process(delta: float) -> void:
 		else:
 			cam.set("target", car)
 
-	# Optional fallback polling (in case ai_tick isn't firing)
+	# Keep handle panel and line in sync
+	_update_car_handle_target()
+
+	# Optional fallback polling
 	if _always_track_best:
 		_always_best_accum += delta
 		if _always_best_accum >= _always_best_poll_sec:
@@ -260,6 +274,7 @@ func _build_right_debug_tabs() -> void:
 	panel.set_content(tabs)
 	frame.add_to_right(panel)
 
+# Cars tab: toggle to spawn/despawn the panel
 func _make_cars_tab() -> Control:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -389,6 +404,25 @@ func _make_cars_tab() -> Control:
 	cam_row.add_child(btn_zoom_in)
 
 	v.add_child(cam_row)
+
+	# Car label panel toggle
+	var chk_handle := CheckBox.new(); chk_handle.text = "Show car label panel"
+	chk_handle.button_pressed = _show_car_handle
+	chk_handle.toggled.connect(func(on: bool):
+		_show_car_handle = on
+		if on:
+			_ensure_car_handle_panel()
+		else:
+			_destroy_car_handle_panel()
+	)
+	v.add_child(chk_handle)
+
+	# NEW: sensors toggle row
+	var sensors_row := _make_check_row("Show sensors for observed car", _show_current_sensors, func(on: bool):
+		_set_show_current_sensors(on)
+	)
+	v.add_child(sensors_row)
+
 	return v
 
 # Populate both selectors
@@ -648,7 +682,19 @@ func _pick_initial_observed() -> void:
 func _set_observed_car(car: Car, update_selectors: bool = true) -> void:
 	if car == _observed_car:
 		return
+	# Turn off sensors on previous car
+	if _show_current_sensors and is_instance_valid(_observed_car):
+		_apply_sensors_debug_to_car(_observed_car, false)
+
 	_observed_car = car
+
+	# Turn on sensors on new observed car
+	if _show_current_sensors and is_instance_valid(_observed_car):
+		_apply_sensors_debug_to_car(_observed_car, true)
+
+	# NEW: update the handle's target
+	_update_car_handle_target()
+
 	if update_selectors:
 		var am := _get_agent_manager()
 		if am:
@@ -660,6 +706,31 @@ func _set_observed_car(car: Car, update_selectors: bool = true) -> void:
 					_car_selector_tab.select(idx)
 	_refresh_neuron_graph()
 	_refresh_input_graph()
+
+# NEW: toggle handler
+func _set_show_current_sensors(on: bool) -> void:
+	if _show_current_sensors == on:
+		return
+	_show_current_sensors = on
+
+	# First, disable on all cars to avoid leftovers
+	var am := _get_agent_manager()
+	if am:
+		for c in am.cars:
+			_apply_sensors_debug_to_car(c, false)
+
+	# Then apply to current observed (if enabled)
+	if on:
+		_apply_sensors_debug_to_car(_get_observed_car(), true)
+
+# NEW: apply draw_debug on a car's sensors (if present)
+func _apply_sensors_debug_to_car(car: Car, on: bool) -> void:
+	if car == null or !is_instance_valid(car):
+		return
+	var sensors := _get_car_sensors(car)
+	if sensors:
+		sensors.draw_debug = on
+		sensors.queue_redraw()
 
 func _select_relative(step: int) -> void:
 	var am := _get_agent_manager()
@@ -787,7 +858,60 @@ func _make_race_progression_tab() -> Control:
 	)
 	v.add_child(btn_clear)
 
+	# NEW: Checkpoint debug options panel (affects all CheckpointsDebug nodes)
+	var dbg_nodes := _get_checkpoint_debug_nodes()
+	var dbg0 = (dbg_nodes[0] if dbg_nodes.size() > 0 else null)
+
+	var dbg_panel := CollapsiblePanel.new()
+	dbg_panel.title = "Checkpoint Debug"
+	dbg_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var dbg_v := VBoxContainer.new()
+	dbg_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	# Enabled
+	dbg_v.add_child(_make_check_row("Enabled", (dbg0.enabled if dbg0 else false), func(on: bool):
+		for n in _get_checkpoint_debug_nodes():
+			n.enabled = on
+	))
+
+	# Show indices
+	dbg_v.add_child(_make_check_row("Show indices", (dbg0.draw_indices if dbg0 else true), func(on: bool):
+		for n in _get_checkpoint_debug_nodes():
+			n.draw_indices = on
+	))
+
+	# Show order lines
+	dbg_v.add_child(_make_check_row("Show order lines", (dbg0.draw_order_lines if dbg0 else true), func(on: bool):
+		for n in _get_checkpoint_debug_nodes():
+			n.draw_order_lines = on
+	))
+
+	# Show progress values
+	dbg_v.add_child(_make_check_row("Show progress values", (dbg0.draw_progress_values if dbg0 else false), func(on: bool):
+		for n in _get_checkpoint_debug_nodes():
+			n.draw_progress_values = on
+	))
+
+	# Auto-update (redraw every frame)
+	dbg_v.add_child(_make_check_row("Auto update", (dbg0.auto_update if dbg0 else true), func(on: bool):
+		for n in _get_checkpoint_debug_nodes():
+			n.auto_update = on
+			n.set_process(on)
+	))
+
+	dbg_panel.set_content(dbg_v)
+	v.add_child(dbg_panel)
+
 	return v
+
+# Helpers
+func _get_checkpoint_debug_nodes() -> Array:
+	var out: Array = []
+	for n in get_tree().get_nodes_in_group("checkpoint_debug"):
+		if n is CheckpointsDebug:
+			out.append(n)
+	return out
 
 # Helpers to build labeled rows
 func _make_spin_row(label_text: String, value: float, min_value: float, max_value: float, step: float, on_change: Callable) -> Control:
@@ -906,3 +1030,84 @@ func _on_generation_json_selected(path: String) -> void:
 		print("Queued generation JSON for next generation: ", path)
 	else:
 		push_error("Failed to queue generation JSON from: " + path)
+
+# Handle: world-space label next to observed car --------------------------------
+
+func _ensure_car_handle_panel() -> void:
+	# Panel (HUD space)
+	if _car_handle == null or !is_instance_valid(_car_handle):
+		_car_handle = CarHandlePanel.new()
+		_car_handle.visible = _show_car_handle
+		add_child(_car_handle)
+		_position_handle_panel_default()
+
+	# Overlay (world space)
+	if _car_handle_overlay == null or !is_instance_valid(_car_handle_overlay):
+		var parent_node: Node = _get_camera().get_parent() if _get_camera() else get_tree().get_root()
+		_car_handle_overlay = CarHandleLineOverlay.new()
+		parent_node.add_child(_car_handle_overlay)
+
+	# Initial sync
+	_update_car_handle_target()
+
+func _destroy_car_handle_panel() -> void:
+	if _car_handle and is_instance_valid(_car_handle):
+		_car_handle.queue_free()
+	_car_handle = null
+	if _car_handle_overlay and is_instance_valid(_car_handle_overlay):
+		_car_handle_overlay.queue_free()
+	_car_handle_overlay = null
+
+func _update_car_handle_target() -> void:
+	if _car_handle and is_instance_valid(_car_handle):
+		_car_handle.visible = _show_car_handle
+		_car_handle.set_car(_get_observed_car())
+	if _car_handle_overlay and is_instance_valid(_car_handle_overlay):
+		var cam := _get_camera()
+		_car_handle_overlay.set_refs(cam, _get_observed_car())
+		if _car_handle:
+			_car_handle_overlay.set_panel_screen_top_left(_car_handle.get_top_left_screen())
+
+# Compute rank using DataBroker score (same path as best-car), higher is better
+func _compute_rank_index(target_car: Car) -> int:
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty() or target_car == null:
+		return 1
+	var db := _get_data_broker()
+	var entries: Array = []
+	for c in am.cars:
+		if c == null:
+			continue
+		if best_car_skip_crashed and c.crashed:
+			continue
+		var v = db.get_value(c, best_car_score_path) if db else 0.0
+		var s := 0.0
+		match typeof(v):
+			TYPE_FLOAT, TYPE_INT: s = float(v)
+			TYPE_BOOL: s = (1.0 if v else 0.0)
+			TYPE_STRING:
+				var p := str(v)
+				s = float(p) if p.is_valid_float() else 0.0
+			_: s = 0.0
+		entries.append({"car": c, "score": s})
+	# Sort desc by score
+	entries.sort_custom(func(a, b):
+		return a["score"] > b["score"]
+	)
+	for i in range(entries.size()):
+		if entries[i]["car"] == target_car:
+			return i + 1
+	return 1
+
+func _position_handle_panel_default() -> void:
+	# Place at the center of the bottom-right quadrant of the viewport
+	var vp_size := get_viewport().get_visible_rect().size
+	var center := Vector2(vp_size.x * 0.75, vp_size.y * 0.75)
+	# Defer to ensure the panel has a valid size before centering
+	call_deferred("_center_handle_panel_at", center)
+
+func _center_handle_panel_at(center: Vector2) -> void:
+	if _car_handle == null or !is_instance_valid(_car_handle):
+		return
+	var sz := _car_handle.size
+	_car_handle.global_position = center - sz * 0.5

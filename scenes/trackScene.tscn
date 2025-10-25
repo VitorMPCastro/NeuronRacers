@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://dds42avibdl3k"]
+[gd_scene load_steps=16 format=3 uid="uid://dds42avibdl3k"]
 
 [ext_resource type="PackedScene" uid="uid://j5udtokn6d60" path="res://scenes/car.tscn" id="2_n1x8e"]
 [ext_resource type="Script" uid="uid://ca20qk44hdbk0" path="res://scripts/controls/cameraScript.gd" id="3_5oo0w"]
@@ -15,6 +15,10 @@
 [ext_resource type="Script" uid="uid://c8rqv8wtrrob4" path="res://scripts/manager/spriteManager.gd" id="13_1trbk"]
 [ext_resource type="Script" uid="uid://dfckqvqoarruf" path="res://scripts/ui/hud_setup.gd" id="15_5pscc"]
 
+[sub_resource type="Curve" id="Curve_druem"]
+_data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(1, 1), 0.0, 0.0, 0, 0]
+point_count = 2
+
 [node name="TrackScene" type="Node2D"]
 
 [node name="GameManager" type="Node2D" parent="."]
@@ -30,6 +34,7 @@ weight = 0.3
 mutate_chance = 0.2
 input_layer_neurons = 6
 hidden_layers = PackedInt32Array(12, 12)
+fitness_expression = "(total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)) + ((total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)) / speed)"
 
 [node name="CarTelemetry" type="Node2D" parent="GameManager/AgentManager"]
 script = ExtResource("5_4qaac")
@@ -68,6 +73,8 @@ ignore_rotation = false
 script = ExtResource("3_5oo0w")
 min_zoom = 0.02
 max_zoom = 0.8
+smooth_switch_duration = 0.1
+smooth_switch_curve = SubResource("Curve_druem")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("15_5pscc")

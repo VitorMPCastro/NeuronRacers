@@ -130,7 +130,7 @@ func _draw() -> void:
 	var rect_bottom := Rect2(Vector2(mid_rect.position.x, mid_rect.position.y + mid_half_h), Vector2(mid_rect.size.x, mid_half_h))
 
 	_draw_filled_rect(rect_top, axes["throttle"], fill_top)
-	_draw_filled_rect(rect_bottom, axes["brake"], fill_bottom)
+	_draw_filled_rect_top_down(rect_bottom, axes["brake"], fill_bottom)
 
 	# Triangles: fill from their base horizontally (left: right->left, right: left->right)
 	_draw_left_triangle_horizontal(left_rect, axes["steer_left"], fill_side)
@@ -147,6 +147,14 @@ func _draw_filled_rect(r: Rect2, frac: float, col: Color) -> void:
 		return
 	var h := r.size.y * frac
 	var fill_rect := Rect2(Vector2(r.position.x, r.position.y + r.size.y - h), Vector2(r.size.x, h))
+	draw_rect(fill_rect, col, true)
+
+func _draw_filled_rect_top_down(r: Rect2, frac: float, col: Color) -> void:
+	frac = clamp(frac, 0.0, 1.0)
+	if frac <= 0.0:
+		return
+	var h := r.size.y * frac
+	var fill_rect := Rect2(r.position, Vector2(r.size.x, h))
 	draw_rect(fill_rect, col, true)
 
 # Left triangle points left. Base is the vertical right edge. Fill grows right->left.

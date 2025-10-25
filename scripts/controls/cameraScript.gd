@@ -16,14 +16,29 @@ extends Camera2D
 @export var rotation_speed_deg: float = 120.0
 @export var north_rotation: float = 0.0
 
+# NEW: smooth switch options
+@export var smooth_switch_enabled: bool = true
+@export var smooth_switch_duration: float = 0.5
+@export var smooth_switch_curve: Curve = Curve.new()
+
 signal target_changed(new_target: Node2D)
 
 var target: Node2D = null
 var _hud: Node = null
 var _last_highlighted: Node2D = null
 
+# NEW: runtime state for smooth switch
+var _is_switching: bool = false
+var _switch_elapsed: float = 0.0
+var _switch_start_pos: Vector2
+var _switch_end_pos: Vector2
+
 func _ready() -> void:
 	_resolve_hud()
+	# Ensure the curve is valid
+	if smooth_switch_curve.get_point_count() == 0:
+		smooth_switch_curve.add_point(Vector2(0, 0))
+		smooth_switch_curve.add_point(Vector2(1, 1))
 	set_process(true)
 	set_physics_process(true)
 
@@ -51,14 +66,24 @@ func _process(delta: float) -> void:
 		else:
 			rotation = target_angle
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	# Follow HUD-selected car if available
 	var desired: Node2D = _get_hud_observed_car()
 	if desired != null and desired != target:
 		set_target(desired)
 
-	if is_instance_valid(target):
-		global_position = target.global_position
+	# Smooth switch in world position
+	if _is_switching and is_instance_valid(target):
+		_switch_elapsed += delta
+		var dur = max(0.0001, smooth_switch_duration)
+		var t = clamp(_switch_elapsed / dur, 0.0, 1.0)
+		var e := smooth_switch_curve.sample(t)
+		global_position = _switch_start_pos.lerp(_switch_end_pos, e)
+		if t >= 1.0:
+			_is_switching = false
+	else:
+		if is_instance_valid(target):
+			global_position = target.global_position
 
 func _input(event: InputEvent) -> void:
 	# Zoom and snap-to-north
@@ -92,6 +117,16 @@ func set_target(obj: Node2D) -> void:
 		return
 	if is_instance_valid(_last_highlighted) and _last_highlighted.has_method("set_highlighted"):
 		_last_highlighted.set_highlighted(false)
+
+	# NEW: prepare smooth transition
+	if smooth_switch_enabled and is_instance_valid(obj):
+		_switch_start_pos = global_position
+		_switch_end_pos = obj.global_position
+		_switch_elapsed = 0.0
+		_is_switching = true
+	else:
+		_is_switching = false
+
 	target = obj
 	if highlight_enabled and is_instance_valid(target) and target.has_method("set_highlighted"):
 		target.set_highlighted(true)
