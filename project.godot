@@ -13,7 +13,7 @@ config_version=5
 config/name="Neuron Racers"
 run/main_scene="uid://b034ouy7crnak"
 config/features=PackedStringArray("4.4", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="uid://dll0n508iv2v8"
 
 [display]
 
@@ -30,3 +30,5 @@ window/size/borderless=true
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_2d=2
+anti_aliasing/quality/screen_space_aa=1

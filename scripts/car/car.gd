@@ -19,6 +19,10 @@ class_name Car
 @export var traction_curve: Curve = Curve.new()  # maps speed (px/s) to max turn rate (rad/sec)
 @export var wheel_base = 65          # Distância entre eixos
 
+# NEW: lateral grip and reverse engage angle
+@export var lateral_friction_ui: float = 250.0        # stronger sideways damping (UI units; coeff = /100)
+@export var reverse_engage_angle_deg: float = 45.0    # require facing ~backwards to engage reverse
+
 # AI input features (queried via telemetry/DataBroker, like the leaderboard)
 @export_group("AI Inputs")
 @export var ai_feature_paths: PackedStringArray = PackedStringArray(["velocity.length()"])  # add more paths if needed
@@ -110,6 +114,10 @@ func friction_coeff() -> float:
 
 func drag_coeff() -> float:
 	return max(0.0, drag_ui) / 10000.0
+
+# NEW: lateral friction coeff
+func lateral_friction_coeff() -> float:
+	return max(0.0, lateral_friction_ui) / 100.0
 
 @onready var _car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
 @onready var _rpm: RaceProgressionManager = get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
@@ -244,8 +252,15 @@ func handle_input(delta: float) -> void:
 				if speed > 0.0:
 					acceleration += -velocity.normalized() * braking * (-throttle_cmd)
 			else:
-				# If still moving forward above threshold, brake first
-				if fwd_speed > reverse_engage_speed and speed > 0.0:
+				# NEW: only engage reverse when nearly stopped OR actually moving backwards
+				var forward_dot := 0.0
+				if speed > 0.0:
+					forward_dot = transform.x.dot(velocity / speed)   # 1=forward, -1=backward, 0=sideways
+				var moving_backward := forward_dot <= -cos(deg_to_rad(reverse_engage_angle_deg))
+				var can_engage_reverse := (speed < reverse_engage_speed) or moving_backward
+
+				if not can_engage_reverse:
+					# While sliding forward/sideways: brake to kill velocity (prevents crab-walking)
 					acceleration += -velocity.normalized() * braking * (-throttle_cmd)
 				else:
 					# Engage reverse drive (backward acceleration)
@@ -269,12 +284,16 @@ func _apply_friction_and_drag(_delta: float) -> void:
 	var dir := v / speed
 	var b := friction_coeff()
 	var a := drag_coeff()
-	# Linear damping (rolling resistance, drivetrain losses)
+	# Isotropic damping (acts on current motion direction)
 	var linear = -dir * b * speed
-	# Quadratic damping (air drag)
 	var quadratic = -dir * a * speed * speed
-	# Add to this frame's acceleration (no extra delta here)
-	acceleration += linear + quadratic
+
+	# NEW: lateral grip (strongly damps sideways slip relative to car heading)
+	var side_speed := velocity.dot(transform.y)             # sideways component
+	var side_linear := -transform.y * lateral_friction_coeff() * side_speed
+
+	# Add to this frame's acceleration
+	acceleration += linear + quadratic + side_linear
 
 # 🔄 Steering: preserve speed, rotate velocity by a max angular step
 func calculate_steering(delta: float) -> void:

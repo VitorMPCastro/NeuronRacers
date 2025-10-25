@@ -86,10 +86,6 @@ func _ready():
 	DirAccess.make_dir_recursive_absolute(save_dir)
 	spawn_population()
 
-
-func _physics_process(delta: float) -> void:
-	update_car_fitness()
-
 func _process(delta):
 	if !is_training:
 		return
@@ -99,6 +95,7 @@ func _process(delta):
 		next_generation()
 
 func _on_ai_timer_timeout() -> void:
+	update_car_fitness()         # do it at ai_actions_per_second
 	ai_tick.emit()
 
 func _update_ai_timer() -> void:

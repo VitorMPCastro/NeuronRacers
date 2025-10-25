@@ -2,7 +2,7 @@ extends Node
 class_name CarTelemetry
 
 @export var auto_sample: bool = true
-@export var update_interval: float = 0.5
+@export var update_interval: float = 1.0  # was 0.5; sample less often
 # Set any car properties you want to print. Example starts with driver name.
 @export var feature_paths: PackedStringArray = ["car_data.pilot.get_full_name()", "car_data.fitness"]
 

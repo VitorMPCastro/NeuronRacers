@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://j5udtokn6d60"]
+[gd_scene load_steps=21 format=3 uid="uid://j5udtokn6d60"]
 
 [ext_resource type="Script" uid="uid://npmcexxqvm6k" path="res://scripts/car/car.gd" id="1_qt2eu"]
 [ext_resource type="Texture2D" uid="uid://di2bveb00kr2p" path="res://assets/cars/pitstop_car_11.png" id="2_50v30"]
@@ -15,7 +15,7 @@ size = Vector2(413, 134)
 [sub_resource type="CircleShape2D" id="CircleShape2D_k55xp"]
 radius = 148.122
 
-[sub_resource type="Resource" id="Resource_cp117"]
+[sub_resource type="Resource" id="Resource_jtldb"]
 script = ExtResource("4_3mrxu")
 enabled = true
 angle_deg = 0.0
@@ -25,42 +25,84 @@ metadata/_custom_type_script = "uid://dqguyqcyqkap"
 [sub_resource type="Resource" id="Resource_4clw4"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 15.0
+angle_deg = 22.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_ctevm"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -15.0
+angle_deg = 44.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_uraa1"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 30.0
+angle_deg = 66.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_gm33m"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -30.0
+angle_deg = 88.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_ugdpj"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 90.0
+angle_deg = 110.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_hylxu"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -90.0
+angle_deg = 132.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_6mia2"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -132.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_a1jdg"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -110.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_7vqyg"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -88.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_l8qg8"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -66.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_f45sw"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -44.0
+max_length_px = 1e+06
+metadata/_custom_type_script = "uid://dqguyqcyqkap"
+
+[sub_resource type="Resource" id="Resource_cp117"]
+script = ExtResource("4_3mrxu")
+enabled = true
+angle_deg = -22.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
@@ -94,8 +136,11 @@ shape = SubResource("CircleShape2D_k55xp")
 
 [node name="RayParent" type="Node2D" parent="."]
 script = ExtResource("3_jtldb")
-rays = Array[ExtResource("4_3mrxu")]([SubResource("Resource_cp117"), SubResource("Resource_4clw4"), SubResource("Resource_ctevm"), SubResource("Resource_uraa1"), SubResource("Resource_gm33m"), SubResource("Resource_ugdpj"), SubResource("Resource_hylxu")])
+rays = Array[ExtResource("4_3mrxu")]([SubResource("Resource_jtldb"), SubResource("Resource_4clw4"), SubResource("Resource_ctevm"), SubResource("Resource_uraa1"), SubResource("Resource_gm33m"), SubResource("Resource_ugdpj"), SubResource("Resource_hylxu"), SubResource("Resource_6mia2"), SubResource("Resource_a1jdg"), SubResource("Resource_7vqyg"), SubResource("Resource_l8qg8"), SubResource("Resource_f45sw"), SubResource("Resource_cp117")])
 normalize_output = false
 clamp_output = false
+default_ray_count = 14
+default_fov_deg = 270.0
+default_max_length_px = 1e+06
 hit_thickness = 6.0
 miss_thickness = 3.0
