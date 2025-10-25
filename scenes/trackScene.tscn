@@ -64,8 +64,10 @@ script = ExtResource("12_druem")
 script = ExtResource("13_1trbk")
 
 [node name="Camera2D" type="Camera2D" parent="."]
+ignore_rotation = false
 script = ExtResource("3_5oo0w")
 min_zoom = 0.02
+max_zoom = 0.8
 
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("15_5pscc")

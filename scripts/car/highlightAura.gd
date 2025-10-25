@@ -3,7 +3,7 @@ class_name HighlightAura
 
 @export var radius: float = 80.0
 @export var width: float = 12.0
-@export var color: Color = Color(0.2, 1.0, 0.6, 0.9)
+@export var color: Color = Color(1.0, 1.0, 1.0, 0.9)
 @export var pulse: bool = true
 @export var pulse_speed: float = 2.0
 @export var pulse_amplitude: float = 6.0

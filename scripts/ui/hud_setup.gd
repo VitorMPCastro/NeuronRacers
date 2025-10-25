@@ -272,12 +272,9 @@ func _make_cars_tab() -> Control:
 	_car_selector_tab = OptionButton.new(); _car_selector_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_car_selector_tab.item_selected.connect(func(_idx: int):
 		_refresh_neuron_graph()
-		# Optional: spectate immediately when selected in the tab as well
 		_on_car_selected_tab(_idx)
 	)
 	row_sel.add_child(_car_selector_tab)
-
-	# Spectate selected
 	var btn_spec := Button.new()
 	btn_spec.text = "Spectate Selected"
 	btn_spec.pressed.connect(func():
@@ -286,7 +283,7 @@ func _make_cars_tab() -> Control:
 	row_sel.add_child(btn_spec)
 	v.add_child(row_sel)
 
-	# Camera debug options (include highlight switch)
+	# Camera debug options
 	var cam_row := HBoxContainer.new(); cam_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var cam_lbl := Label.new(); cam_lbl.text = "Camera"; cam_lbl.custom_minimum_size.x = 120
 	cam_row.add_child(cam_lbl)
@@ -313,14 +310,60 @@ func _make_cars_tab() -> Control:
 	)
 	cam_row.add_child(chk_always)
 
+	# Align rotation to car
+	var chk_align := CheckBox.new(); chk_align.text = "Align rotation to car"
+	var cam := _get_camera()
+	chk_align.button_pressed = cam != null and cam.align_rotation_to_car
+	chk_align.toggled.connect(func(on: bool):
+		var c := _get_camera()
+		if c:
+			c.align_rotation_to_car = on
+	)
+	cam_row.add_child(chk_align)
+
+	# NEW: rotation deadzone toggle
+	var chk_dead := CheckBox.new(); chk_dead.text = "Rotation deadzone"
+	chk_dead.button_pressed = cam != null and cam.align_use_deadzone
+	chk_dead.toggled.connect(func(on: bool):
+		var c := _get_camera()
+		if c:
+			c.align_use_deadzone = on
+	)
+	cam_row.add_child(chk_dead)
+
+	# NEW: deadzone amount (degrees)
+	var spn_dead := SpinBox.new()
+	spn_dead.min_value = 0.0
+	spn_dead.max_value = 180.0
+	spn_dead.step = 0.5
+	spn_dead.custom_minimum_size.x = 90
+	spn_dead.value = (cam.align_deadzone_deg if cam else 10.0)
+	spn_dead.value_changed.connect(func(v: float):
+		var c := _get_camera()
+		if c:
+			c.align_deadzone_deg = v
+	)
+	cam_row.add_child(spn_dead)
+
+	# Snap to North button (shortcut N)
+	var btn_north := Button.new(); btn_north.text = "North (N)"
+	btn_north.pressed.connect(func():
+		var c := _get_camera()
+		if c and c.has_method("snap_north"):
+			c.snap_north()
+		elif c:
+			c.rotation = 0.0
+	)
+	cam_row.add_child(btn_north)
+
 	var chk_hl := CheckBox.new(); chk_hl.text = "Highlight target"
 	chk_hl.button_pressed = _camera and _camera.has_method("highlight_enabled") and _camera.highlight_enabled
 	chk_hl.toggled.connect(func(on: bool):
-		var cam := _get_camera()
-		if cam and cam.has_method("highlight_enabled"):
-			cam.highlight_enabled = on
-		if cam and cam.has_method("set_target") and cam.has("target"):
-			cam.set_target(cam.get("target"))
+		var c := _get_camera()
+		if c and c.has_method("highlight_enabled"):
+			c.highlight_enabled = on
+		if c and c.has_method("set_target") and c.has("target"):
+			c.set_target(c.get("target"))
 	)
 	cam_row.add_child(chk_hl)
 
@@ -328,48 +371,24 @@ func _make_cars_tab() -> Control:
 	btn_next.pressed.connect(func(): _select_relative(1))
 	cam_row.add_child(btn_next)
 
+	# Zoom
 	var btn_zoom_out := Button.new(); btn_zoom_out.text = "Zoom +"
 	btn_zoom_out.pressed.connect(func():
-		var cam := _get_camera()
-		if cam and cam.has_method("adjust_zoom"):
-			cam.adjust_zoom(cam.zoom_speed) # out
+		var c := _get_camera()
+		if c and c.has_method("adjust_zoom"):
+			c.adjust_zoom(c.zoom_speed)
 	)
 	cam_row.add_child(btn_zoom_out)
 
 	var btn_zoom_in := Button.new(); btn_zoom_in.text = "Zoom -"
 	btn_zoom_in.pressed.connect(func():
-		var cam := _get_camera()
-		if cam and cam.has_method("adjust_zoom"):
-			cam.adjust_zoom(-cam.zoom_speed) # in
+		var c := _get_camera()
+		if c and c.has_method("adjust_zoom"):
+			c.adjust_zoom(-c.zoom_speed)
 	)
 	cam_row.add_child(btn_zoom_in)
 
 	v.add_child(cam_row)
-
-	# Toggle sensors debug for all cars
-	v.add_child(_make_check_row("Show sensors (all cars)", false, func(on: bool):
-		var m := _get_agent_manager(); if m:
-			for c in m.cars:
-				var rig := _get_car_sensors(c)
-				if rig: rig.draw_debug = on
-	))
-
-	# Info + actions for selected car (safe ops)
-	var row_btns := HBoxContainer.new(); row_btns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var btn_kill := Button.new(); btn_kill.text = "Crash Selected"
-	btn_kill.pressed.connect(func():
-		var m := _get_agent_manager(); if m and _car_selector_tab.item_count > 0:
-			var idx := _car_selector_tab.get_selected_id()
-			if idx >= 0 and idx < m.cars.size():
-				var car = m.cars[idx]
-				if car is Car:
-					car.crashed = true
-					if car.has_method("die"):
-						car.die()
-	)
-	row_btns.add_child(btn_kill)
-	v.add_child(row_btns)
-
 	return v
 
 # Populate both selectors
