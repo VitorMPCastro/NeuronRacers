@@ -93,11 +93,11 @@ func _draw() -> void:
 	var inner := Rect2(draw_pos, Vector2(target_w, target_h))
 
 	if inner.size.x < 50 or inner.size.y < 50:
-		draw_string(get_theme_default_font(), Vector2(8, 18), "Inputs: area too small", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14.0, Color(1,1,1,0.6))
+		draw_string(get_theme_default_font(), Vector2(8, 18), "Inputs: area too small", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(1,1,1,0.6))
 		return
 
 	if _car == null:
-		draw_string(get_theme_default_font(), inner.position + Vector2(8, 18), "No car selected", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14.0, Color(1,1,1,0.6))
+		draw_string(get_theme_default_font(), inner.position + Vector2(8, 18), "No car selected", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(1,1,1,0.6))
 		# Still draw background so user sees the widget
 		draw_rect(inner, bg_color, true)
 
@@ -176,15 +176,15 @@ func _draw_left_triangle_horizontal(b: Rect2, frac: float, col: Color) -> void:
 			var x_clip = lerp(x_base, x_apex, frac)  # move from base to apex with frac
 
 			# Intersection with edges apex->top_right and apex->bottom_right at x_clip
-			var br := bottom_right
-			var tr := top_right
+			var bt_r := bottom_right
+			var tp_r := top_right
 			var ax := apex_left
 
-			var t_bottom = (x_clip - ax.x) / (br.x - ax.x)
-			var p_bottom := ax.lerp(br, t_bottom)
+			var t_bottom = (x_clip - ax.x) / (bt_r.x - ax.x)
+			var p_bottom := ax.lerp(bt_r, t_bottom)
 
-			var t_top = (x_clip - ax.x) / (tr.x - ax.x)
-			var p_top := ax.lerp(tr, t_top)
+			var t_top = (x_clip - ax.x) / (tp_r.x - ax.x)
+			var p_top := ax.lerp(tp_r, t_top)
 
 			var poly := PackedVector2Array([bottom_right, p_bottom, p_top, top_right])
 			draw_colored_polygon(poly, col)

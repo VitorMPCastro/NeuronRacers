@@ -2,10 +2,6 @@ extends Node2D
 
 class_name GameManager
 
-# signals
-signal debug_show_lines_changed
-signal debug_show_polygons_changed
-
 static var global_time: float = 0.0
 @onready var trackObject: Node2D = self.find_child("Track") as Node2D
 @onready var path_node: Path2D = trackObject.find_child("Path2D") as Path2D
@@ -18,14 +14,14 @@ func _ready() -> void:
 	InputManager.set_active_context("Track Mode")
 
 	var tm := track_manager as TrackManager
-	var rpm := race_progression_manager as RaceProgressionManager
-	var am := agent_manager as AgentManager
+	var _rpm := race_progression_manager as RaceProgressionManager
+	var _am := agent_manager as AgentManager
 
 	if tm == null:
 		push_error("TrackManager node not found or not using TrackManager.gd")
 		return
 
-	var track := tm.generate_track_from_path(path_node)
+	var _track := tm.generate_track_from_path(path_node)
 
 func _process(delta: float) -> void:
 	global_time += delta

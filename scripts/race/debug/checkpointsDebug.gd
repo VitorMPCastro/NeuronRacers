@@ -69,9 +69,9 @@ func _draw() -> void:
 		if draw_indices and _font:
 			var idx_text := str(i)
 			var pos := to_local(p) + Vector2(8, -6)
-			draw_string(_font, pos, idx_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14.0, Color(1,1,1,0.95))
+			draw_string(_font, pos, idx_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(1,1,1,0.95))
 
 		if draw_progress_values and _font and i < prog.size():
 			var pr := "%.1f" % prog[i]
 			var pos2 := to_local(p) + Vector2(8, 10)
-			draw_string(_font, pos2, pr, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12.0, Color(0.9,0.9,0.9,0.9))
+			draw_string(_font, pos2, pr, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Color(0.9,0.9,0.9,0.9))

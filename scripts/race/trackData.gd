@@ -68,10 +68,10 @@ func _bake_segments() -> void:
 		var j := (i + 1) % n
 		var b := pts[j]
 		var ab := b - a
-		var len := ab.length()
+		var segment_length := ab.length()
 		_seg_ab[i] = ab
-		_seg_len[i] = len
-		_seg_dir[i] = (ab / len) if len > 1e-6 else Vector2.ZERO
+		_seg_len[i] = segment_length
+		_seg_dir[i] = (ab / segment_length) if segment_length > 1e-6 else Vector2.ZERO
 
 func get_segment_length(from_idx: int, to_idx: int) -> float:
 	# O(1) using cumulative_length (from start to to_idx)
@@ -137,8 +137,8 @@ func get_point_progress_walk(point_local: Vector2, prev_idx: int, max_steps: int
 		var t := float(hit["t"])
 		# In-range: done
 		if t > 0.0 and t < 1.0:
-			var base = cumulative_length[idx] if cumulative_length.size() > 0 else 0.0
-			var prog = base + t * _seg_len[idx]
+			var local_base = cumulative_length[idx] if cumulative_length.size() > 0 else 0.0
+			var prog = local_base + t * _seg_len[idx]
 			return {"progress": prog, "index": idx}
 		# At ends: try walking forward/backward
 		if step >= max_steps:

@@ -7,6 +7,13 @@ var _path_cache: Dictionary = {}
 func _ready() -> void:
 	add_to_group("data_broker")
 
+func get_many(provider: Object, paths: PackedStringArray) -> Array:
+	var out: Array = []
+	out.resize(paths.size())
+	for i in paths.size():
+		out[i] = get_value(provider, paths[i])
+	return out
+
 func get_value(provider: Object, path: String) -> Variant:
 	if provider == null or path.is_empty():
 		return null
@@ -31,13 +38,13 @@ func get_value(provider: Object, path: String) -> Variant:
 	for t in tokens:
 		if cur == null:
 			return null
-		var name: String = t.name
+		var token_name: String = t.token_name
 		if t.call:
-			if typeof(cur) == TYPE_OBJECT and (cur as Object).has_method(name):
-				cur = (cur as Object).call(name)
+			if typeof(cur) == TYPE_OBJECT and (cur as Object).has_method(token_name):
+				cur = (cur as Object).call(token_name)
 			elif typeof(cur) == TYPE_VECTOR2:
 				# NEW: support Vector2 method calls
-				match name:
+				match token_name:
 					"length": cur = (cur as Vector2).length()
 					"length_squared": cur = (cur as Vector2).length_squared()
 					"normalized":
@@ -67,13 +74,6 @@ func get_value(provider: Object, path: String) -> Variant:
 				return null
 	return cur
 
-func get_many(provider: Object, paths: PackedStringArray) -> Array:
-	var out: Array = []
-	out.resize(paths.size())
-	for i in paths.size():
-		out[i] = get_value(provider, paths[i])
-	return out
-
 func _compile_path(path: String) -> Array:
 	var tokens = _path_cache.get(path)
 	if tokens != null:
@@ -81,21 +81,21 @@ func _compile_path(path: String) -> Array:
 	tokens = []
 	var parts := path.split(".")
 	for p in parts:
-		var call := false
-		var name := p
+		var is_call := false
+		var token_name := p
 		if p.ends_with("()"):
-			call = true
-			name = p.substr(0, p.length() - 2)
-		tokens.append({ "name": name, "call": call })
+			is_call = true
+			token_name = p.substr(0, p.length() - 2)
+		tokens.append({ "name": token_name, "call": is_call })
 	# Small struct-like access
 	for i in tokens.size():
-		tokens[i] = Token.new(tokens[i].name, tokens[i].call)
+		tokens[i] = Token.new(tokens[i].token_name, tokens[i].is_call)
 	_path_cache[path] = tokens
 	return tokens
 
 class Token:
-	var name: String
-	var call: bool
+	var token_name: String
+	var is_call: bool
 	func _init(n: String, c: bool) -> void:
-		name = n
-		call = c
+		token_name = n
+		is_call = c

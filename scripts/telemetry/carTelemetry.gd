@@ -67,7 +67,7 @@ func get_values_for_car(provider: Object, paths: PackedStringArray) -> Telemetry
 	# NEW: batch resolve
 	var values: Array = data_broker.get_many(provider, paths)
 
-	var car_name = (provider as Node).name if provider is Node else str(provider)
+	var car_name = (provider as Node).name
 	var row: Array = [car_name]
 	row.append_array(values)
 	td.rows.append(row)

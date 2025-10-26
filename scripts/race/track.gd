@@ -144,7 +144,7 @@ func draw_quads_between_lines(line1: Line2D, line2: Line2D, texture: Texture2D =
 
 # Static builder that generates a track polygon around a Path2D.
 # Returns a Track or null on failure.
-func build_from_path(path: Path2D, width: float = 128.0, curb_thickness: float = 8.0, tex: Texture2D = null, sample_step: float = 32.0, use_cubic_sampling: bool = false, treat_as_loop: bool = true, z_index: int = 1000) -> Track:
+func build_from_path(path: Path2D, width: float = 128.0, curb_thickness: float = 8.0, _tex: Texture2D = null, sample_step: float = 32.0, use_cubic_sampling: bool = false, _treat_as_loop: bool = true, _z_index: int = 1000) -> Track:
 	if path == null:
 		push_error("Track.build_from_path: path is null")
 		return null
@@ -246,7 +246,7 @@ func toggle_show_sectors(debug_show_sectors: bool) -> void:
 			if is_instance_valid(ln):
 				ln.add_to_group("track_sector_lines")
 
-func draw_line_track_section(line: Line2D, start_index: int, end_index: int, name: String, color: Color = Color(randf_range(0,1),randf_range(0,1),randf_range(0,1), 1)) -> Line2D:
+func draw_line_track_section(line: Line2D, start_index: int, end_index: int, section_name: String, color: Color = Color(randf_range(0,1),randf_range(0,1),randf_range(0,1), 1)) -> Line2D:
 	if start_index < 0 or end_index < 0 or start_index >= line.points.size() or end_index >= line.points.size():
 		return null
 
@@ -256,7 +256,7 @@ func draw_line_track_section(line: Line2D, start_index: int, end_index: int, nam
 		highlight_line.add_point(line.points[i])
 
 	highlight_line.default_color = color
-	highlight_line.name = name
+	highlight_line.section_name = section_name
 	highlight_line.width = 4.0
 	highlight_line.visible = true
 	highlight_line.add_to_group("track_sector_lines")   # tag for cleanup
@@ -275,4 +275,4 @@ func _on_track_built() -> void:
 	var origin := get_node_or_null("TrackOrigin") as Node2D
 	if origin and is_instance_valid(center_line) and center_line.points.size() > 0:
 		var p_local := center_line.points[0]
-		origin.global_position = self.to_global(p_local)
+		origin.global_position = self.to_global(p_local - Vector2(5, 0))

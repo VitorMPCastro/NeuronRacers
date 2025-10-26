@@ -16,11 +16,11 @@ enum ActionType { BUTTON, AXIS }
 
 var last_trigger_time: float = -1000
 
-func _init(action_name: String, action_type: ActionType = ActionType.BUTTON, cooldown: float = 0.0, is_hold: bool = false) -> void:
-	self.action_name = action_name
-	self.action_type = action_type
-	self.cooldown = cooldown
-	self.is_hold = is_hold
+func _init(act_name: String, act_type: ActionType = ActionType.BUTTON, cd: float = 0.0, hold: bool = false) -> void:
+	self.action_name = act_name
+	self.action_type = act_type
+	self.cooldown = cd
+	self.is_hold = hold
 
 func can_trigger(global_time: float) -> bool:
 	return global_time - last_trigger_time >= cooldown

@@ -38,6 +38,8 @@ var _car_handle: CarHandlePanel = null
 var _car_handle_overlay: CarHandleLineOverlay = null
 var _show_car_handle: bool = true
 
+var _db_cached: DataBroker = null
+
 func _ready() -> void:
 	frame = frame_scene.instantiate() as UIFrame
 	# Listen for population changes to refresh UI
@@ -233,19 +235,8 @@ func _on_population_spawned_hud() -> void:
 	_pick_initial_observed()
 	_refresh_neuron_graph()
 	_refresh_input_graph()
-	# NEW: reconnect to car deaths for immediate re-eval
-	var am := _get_agent_manager()
-	if am:
-		for c in am.cars:
-			if c and c.has_signal("car_death"):
-				# Use a unique lambda per car
-				c.car_death.connect(func():
-					if _always_track_best:
-						var best := _compute_best_car()
-						if best and best != _observed_car:
-							# if the best died, pick new best; if a slower car died, nothing changes
-							_set_observed_car(best, true)
-				)
+	# REMOVE per-car car_death lambdas; best is recomputed on ai_tick with hysteresis
+	# (This avoids hundreds of lambda invocations in the same frame.)
 
 func _build_right_debug_tabs() -> void:
 	var panel := CollapsiblePanel.new()
@@ -285,7 +276,7 @@ func _make_cars_tab() -> Control:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var am := _get_agent_manager()
+	var _am := _get_agent_manager()
 
 	# Select car (pilot names)
 	var row_sel := HBoxContainer.new(); row_sel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -359,10 +350,10 @@ func _make_cars_tab() -> Control:
 	spn_dead.step = 0.5
 	spn_dead.custom_minimum_size.x = 90
 	spn_dead.value = (cam.align_deadzone_deg if cam else 10.0)
-	spn_dead.value_changed.connect(func(v: float):
+	spn_dead.value_changed.connect(func(value: float):
 		var c := _get_camera()
 		if c:
-			c.align_deadzone_deg = v
+			c.align_deadzone_deg = value
 	)
 	cam_row.add_child(spn_dead)
 
@@ -627,18 +618,19 @@ func _compute_best_car() -> Car:
 	if am == null or am.cars.is_empty():
 		return null
 
+	var best: Car = null
+
 	var db := _get_data_broker()
 	# Fallback to previous behavior if broker/expr is missing
 	if db == null or best_car_score_path.strip_edges() == "":
 		if am.has_method("get_best_car"):
-			var best := am.get_best_car()
+			best = am.get_best_car()
 			if best: return best
 		for c in am.cars:
 			if c and (!best_car_skip_crashed or !c.crashed):
 				return c
 		return am.cars[0]
 
-	var best: Car = null
 	var best_score := -1.0e100
 	for c in am.cars:
 		if c == null:
@@ -965,11 +957,12 @@ func _get_agent_manager() -> AgentManager:
 
 # NEW: DataBroker lookup
 func _get_data_broker() -> DataBroker:
-	var gm := get_tree().get_root().find_child("GameManager", true, false)
-	if gm:
-		return gm.find_child("DataBroker", true, false) as DataBroker
-	# group fallback if you tag it
-	return get_tree().get_first_node_in_group("data_broker") as DataBroker
+	if _db_cached and is_instance_valid(_db_cached):
+		return _db_cached
+	_db_cached = get_tree().get_first_node_in_group("data_broker") as DataBroker
+	if _db_cached == null:
+		_db_cached = get_tree().get_root().find_child("DataBroker", true, false) as DataBroker
+	return _db_cached
 
 func _get_track_manager():
 	var gm := get_tree().get_root().find_child("GameManager", true, false)

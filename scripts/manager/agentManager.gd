@@ -54,6 +54,11 @@ var _pilot_archive: Array = []
 		fitness_variable_paths = value
 		_rebuild_fitness_expression()
 
+@export var fitness_evals_per_tick: int = 32
+@export var kills_per_tick: int = 8
+var _fitness_cursor: int = 0
+var _kills_left: int = 0
+
 signal population_spawned
 signal generation_completed
 signal ai_tick
@@ -107,8 +112,47 @@ func _process(delta):
 		next_generation()
 
 func _on_ai_timer_timeout() -> void:
-	update_car_fitness()         # do it at ai_actions_per_second
+	_update_car_fitness_budgeted()
 	ai_tick.emit()
+
+# Replace update_car_fitness() with a budgeted version
+func _update_car_fitness_budgeted() -> void:
+	var n := cars.size()
+	if n == 0:
+		return
+	var rpm := _get_rpm()
+	_kills_left = max(0, kills_per_tick)
+
+	var evals := clampi(fitness_evals_per_tick, 1, n)
+	var i := 0
+	while i < evals:
+		var idx := (_fitness_cursor + i) % n
+		var car: Car = cars[idx]
+		if car and !car.crashed:
+			if killswitch:
+				_try_kill_stagnant(car)
+			# Only compute fitness for alive cars
+			car.fitness = _eval_fitness(car, rpm)
+		i += 1
+
+	_fitness_cursor = (_fitness_cursor + evals) % n
+
+# Kill logic with rate limit and sane condition (no mass-kill because someone crashed)
+func _try_kill_stagnant(car: Car) -> void:
+	if _kills_left <= 0:
+		return
+	if car == null or car.crashed:
+		return
+
+	var grace_period := 3.0
+	if car.time_alive < grace_period:
+		return
+
+	var best = get_best_speed() # cached static best_speed inside this function
+	var threshold := 0.15 * float(best) if best > 0 else 0.0
+	if car.get_average_speed() < threshold:
+		car.die()
+		_kills_left -= 1
 
 func _update_ai_timer() -> void:
 	if _ai_timer == null:
@@ -203,8 +247,8 @@ func spawn_population(brains: Array = []):
 		if randomize_car_skins:
 			var sprite := car.get_node_or_null("Sprite2D") as Sprite2D
 			if sprite and sprite_manager:
-				var seed := int(i)
-				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed)
+				var seed_local := int(i)
+				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed_local)
 				if tex: sprite.texture = tex
 
 		# Add or re-add car under manager
@@ -227,14 +271,14 @@ func _align_nn_config_to_brain(b: MLP) -> void:
 		hidden_layers = PackedInt32Array()  # keep legacy single-layer if needed
 	output_layer_neurons = int(b.output_size)
 
-func weighted_pick(cars: Array, total_fitness) -> Car:
+func weighted_pick(cars_local: Array, total_fitness) -> Car:
 	var r = randf() * total_fitness
 	var cumulative = 0.0
-	for car in cars:
+	for car in cars_local:
 		cumulative += car.fitness
 		if r <= cumulative:
 			return car
-	return cars[-1]  # fallback in case of float precision issues
+	return cars_local[-1]  # fallback in case of float precision issues
 
 func next_generation():
 	generation_completed.emit()
@@ -267,7 +311,7 @@ func next_generation():
 			var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
 			new_brains.append(brain)
 
-	print(generation_to_string()) if print_debug_generation else null
+	print(generation_to_string() if print_debug_generation else "") 
 
 	clear_scene()
 	spawn_population(new_brains)
@@ -525,7 +569,7 @@ func update_car_fitness():
 
 func get_best_speed():
 	for car in cars:
-		if car:
+		if car and !car.crashed:
 			var avg_speed = car.get_average_speed()
 			if avg_speed > AgentManager.best_speed:
 				AgentManager.best_speed = avg_speed
@@ -706,5 +750,4 @@ func save_pilot_archive(path: String = "") -> bool:
 	fa.store_string(txt)
 	fa.flush()
 	fa.close()
-	return true
 	return true

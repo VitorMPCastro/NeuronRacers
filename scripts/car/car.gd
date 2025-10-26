@@ -10,8 +10,8 @@ class_name Car
 @export var drag_ui: float = 600.0       # actual = drag_ui / 10000.0     (e.g., 600 -> 0.06)
 
 @export var braking = 450.0          # braking strength (positive)
-@export var max_speed_forward = 2500 # optional forward speed cap
-@export var max_speed_reverse = 250
+@export var max_speed_forward = 2500.0 # optional forward speed cap
+@export var max_speed_reverse = 250.0
 # Add reverse options
 @export var allow_reverse: bool = true
 @export var reverse_power_scale: float = 0.7         # fraction of engine_power used in reverse
@@ -265,7 +265,7 @@ func handle_input(delta: float) -> void:
 
 		# Apply throttle/brake/reverse
 		var speed := velocity.length()
-		var fwd_speed := velocity.dot(transform.x)     # >0 forward, <0 backward
+		var _fwd_speed := velocity.dot(transform.x)     # >0 forward, <0 backward
 
 		if throttle_cmd > 0.0:
 			# Forward drive
@@ -321,7 +321,7 @@ func _apply_friction_and_drag(_delta: float) -> void:
 func calculate_steering(delta: float) -> void:
 	# Speed and forward direction (from heading, not velocity)
 	var speed := velocity.length()
-	var fwd := Vector2.RIGHT.rotated(_heading_angle)
+	var _fwd := Vector2.RIGHT.rotated(_heading_angle)
 
 	# Bicycle-model curvature k = tan(delta)/wheel_base
 	var steer_rad = steer_direction               # already in radians (-max..+max)
@@ -384,6 +384,13 @@ func set_highlighted(on: bool) -> void:
 			_highlight_aura.visible = false
 
 func die():
+	# Idempotent: only run once
+	if crashed:
+		return
+	crashed = true
+	set_physics_process(false)
+	set_process(false)
+	velocity = Vector2.ZERO
 	car_death.emit()
 
 # Compute expected terminal speed for current engine_power, friction, drag

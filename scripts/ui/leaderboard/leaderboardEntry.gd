@@ -3,6 +3,7 @@ class_name LeaderboardEntry
 
 var car: Car = null
 var fields: Array[LeaderboardField] = []
+var _faded := false
 
 func set_car(c: Car) -> void:
 	car = c
@@ -16,13 +17,17 @@ func remove_field(field: LeaderboardField) -> void:
 		fields.erase(field)
 		remove_child(field)
 
-# Update using DataBroker.get_many (no TelemetryData)
 func update_entry(broker: DataBroker) -> void:
-	if car == null or broker == null or fields.is_empty():
+	if broker == null or fields.is_empty():
+		return
+	if car == null or !is_instance_valid(car):
+		for f in fields:
+			if f.query_path != "":
+				f.render(null)
 		return
 
 	var paths := PackedStringArray()
-	var field_to_path_idx := {} # field_index -> path_index
+	var field_to_path_idx := {}
 	var p := 0
 	for i in range(fields.size()):
 		var qp := fields[i].query_path.strip_edges()
@@ -30,18 +35,15 @@ func update_entry(broker: DataBroker) -> void:
 			field_to_path_idx[i] = p
 			paths.append(qp)
 			p += 1
-
 	if paths.is_empty():
 		return
 
 	var values: Array = broker.get_many(car, paths)
-
 	for i in range(fields.size()):
 		if field_to_path_idx.has(i):
-			var path_idx: int = int(field_to_path_idx[i])
-			var value = values[path_idx] if path_idx < values.size() else null
+			var idx: int = int(field_to_path_idx[i])
+			var value = values[idx] if idx < values.size() else null
 			fields[i].render(value)
-		# else: leave fields like "#" to be set via set_rank()
 
 func set_rank(rank: int) -> void:
 	var idx := find_field_index("#")
@@ -54,7 +56,14 @@ func find_field_index(field_name: String) -> int:
 			return i
 	return -1
 
-func field_as_comparable(index: int) -> Variant:
-	if index < 0 or index >= fields.size():
-		return null
-	return fields[index].comparable_value()
+func set_crashed_style(crashed: bool, alpha: float = 0.35) -> void:
+	# Fade the whole row by modulating only the alpha
+	var c := modulate
+	var target_a := (alpha if crashed else 1.0)
+	if _faded and !crashed and is_equal_approx(c.a, 1.0):
+		return
+	if (!_faded and crashed and is_equal_approx(c.a, alpha)):
+		return
+	c.a = target_a
+	modulate = c
+	_faded = crashed

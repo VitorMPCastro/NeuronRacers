@@ -86,7 +86,7 @@ func _draw_rounded_rect(r: Rect2, col: Color) -> void:
 	if corner_radius <= 0.0:
 		return
 	var rad := corner_radius
-	var corners := [
+	var _corners := [
 		[r.position + Vector2(rad, rad), 180.0, 270.0],                        # TL
 		[Vector2(r.position.x + r.size.x - rad, r.position.y + rad), 270.0, 360.0], # TR
 		[Vector2(r.position.x + r.size.x - rad, r.position.y + r.size.y - rad), 0.0, 90.0], # BR
