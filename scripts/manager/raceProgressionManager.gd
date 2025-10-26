@@ -19,6 +19,9 @@ const BASE_EPS := 1e-4
 # Require the car to surpass this extra progress (in px) past the checkpoint to award it.
 # Prevents instant CP_0 at spawn jitter and helps with sensor noise.
 @export var award_progress_margin: float = 5.0
+# NEW: checkpoint awarding arming (prevents burst at generation start)
+@export var cp_arm_time: float = 0.05       # seconds after registration before awarding can start
+@export var cp_arm_distance: float = 8.0    # px of movement after registration before awarding can start
 
 @onready var track: Track = get_node_or_null(track_path) as Track
 @onready var track_data: TrackData = get_node_or_null(track_data_path) as TrackData
@@ -193,6 +196,9 @@ func _rebuild_cache() -> void:
 		var pos_world := (car as Node2D).global_position if car is Node2D else Vector2.ZERO
 		st["prev_pos_world"] = pos_world
 		st["index"] = _seed_cp_index_from_pos(pos_world)
+		# NEW: re-arm awarding after cache rebuild
+		st["cp_armed"] = false
+		st["cp_arm_t0"] = GameManager.global_time
 		car_state[car] = st
 
 func _build_checkpoint_gates() -> void:
@@ -359,12 +365,17 @@ func _update_sector_crossings_pos(st: Dictionary, p0: Vector2, p1: Vector2, t0: 
 func register_car(car: Node) -> void:
 	# Idempotent registration
 	if car_state.has(car):
-		# Only re-seed prev position and next index (do not reset counters)
 		var st: Dictionary = car_state[car]
 		var pos_world := (car as Node2D).global_position if car is Node2D else Vector2.ZERO
 		st["prev_pos_world"] = pos_world
+		st["prev_time"] = GameManager.global_time  # seed time
 		if _cp_gate_pos.size() > 0:
 			st["index"] = _seed_cp_index_from_pos(pos_world)
+		# Prime S1 start if needed (first lap)
+		_prime_first_sector_start_if_needed(st, pos_world, st["prev_time"])
+		# NEW: disarm awarding until next tick (prevents initial burst)
+		st["cp_armed"] = false
+		st["cp_arm_t0"] = st["prev_time"]
 		car_state[car] = st
 		_dbg_print("register_car (refresh): " + str(car))
 		return
@@ -381,12 +392,19 @@ func register_car(car: Node) -> void:
 		"samples": [],
 		"cp_history": [],
 		"sector_pass": {},
-		"prev_pos_world": (car as Node2D).global_position if car is Node2D else Vector2.ZERO
+		"prev_pos_world": (car as Node2D).global_position if car is Node2D else Vector2.ZERO,
+		"prev_time": GameManager.global_time,
+		# NEW: disarm awarding until after first tick
+		"cp_armed": false,
+		"cp_arm_t0": GameManager.global_time
 	}
-	# Seed to first gate ahead of the car (gate-based)
 	if _cp_gate_pos.size() > 0 and car is Node2D:
 		var pos_world := (car as Node2D).global_position
 		car_state[car]["index"] = _seed_cp_index_from_pos(pos_world)
+		# Prime S1 start if needed (first lap)
+		var st2: Dictionary = car_state[car]
+		_prime_first_sector_start_if_needed(st2, pos_world, st2["prev_time"])
+		car_state[car] = st2
 	_dbg_print("register_car: " + str(car))
 
 func _seed_cp_index_from_pos(pos_world: Vector2) -> int:
@@ -414,6 +432,30 @@ func update_car_progress(car: Node, pos: Vector2, t: float = -INF) -> void:
 	_dbg_print("enqueue: " + str(car) + " pos=" + str(Vector2i(pos)) + " t=" + str("%.2f" % t))
 
 
+# Prime Sector 1 start on lap 0 if the car is already on the front side of its start gate
+func _prime_first_sector_start_if_needed(st: Dictionary, pos_world: Vector2, t: float) -> void:
+	if _lap_start_sector_index == -1:
+		return
+	# Need prebuilt sector gate geometry
+	if _sec_start_pos.size() == 0 or _sec_start_dir.size() == 0:
+		return
+	var pass_map: Dictionary = st.get("sector_pass", {})
+	if !pass_map.has(_lap_start_sector_index):
+		pass_map[_lap_start_sector_index] = {"last_start_t": -1.0, "last_end_t": -1.0, "last_time": -1.0}
+	var rec: Dictionary = pass_map[_lap_start_sector_index]
+	# Only prime if not set and we are on/after the start gate plane
+	if float(rec.get("last_start_t", -1.0)) < 0.0:
+		var gpos := _sec_start_pos[_lap_start_sector_index]
+		var gdir := _sec_start_dir[_lap_start_sector_index]
+		if gdir != Vector2.ZERO:
+			var s := gdir.dot(pos_world - gpos)
+			if s >= 0.0:
+				rec["last_start_t"] = t
+				pass_map[_lap_start_sector_index] = rec
+				st["sector_pass"] = pass_map
+				if debug_sector_timing:
+					_dbg_print("prime S" + str(_lap_start_sector_index) + " start@" + str("%.2f" % t))
+
 func _process_progress_for(car: Node, new_pos: Vector2, t: float) -> void:
 	if track == null or _cp_gate_pos.size() == 0 or !car_state.has(car):
 		return
@@ -421,7 +463,10 @@ func _process_progress_for(car: Node, new_pos: Vector2, t: float) -> void:
 	var prev_pos: Vector2 = st.get("prev_pos_world", new_pos)
 	var prev_t: float = st.get("prev_time", t)
 
-	# Skip if no actual motion (prevents spurious awards on spawn jitter)
+	# Prime S1 start on first tick if needed (covers lap 0)
+	_prime_first_sector_start_if_needed(st, prev_pos, prev_t)
+
+	# Skip if no actual motion
 	if prev_pos == new_pos:
 		st["prev_pos_world"] = new_pos
 		st["prev_time"] = t
@@ -431,59 +476,71 @@ func _process_progress_for(car: Node, new_pos: Vector2, t: float) -> void:
 	# 1) Sector crossings using world positions
 	_update_sector_crossings_pos(st, prev_pos, new_pos, prev_t, t)
 
-	# 2) Checkpoint by oriented gate crossing
-	var p0 := prev_pos
-	var p1 := new_pos
-	var t0 := prev_t
-	var t1 := t
-	var n := _cp_gate_pos.size()
-	var idx := wrapi(int(st.get("index", 0)), 0, n)
-	var safety := 0
-	while safety < n:
-		var gpos := _cp_gate_pos[idx]
-		var gdir := _cp_gate_dir[idx]  # forward tangent
-		var s0 := gdir.dot(p0 - gpos)
-		var s1 := gdir.dot(p1 - gpos)
-		# Forward crossing: from back side (s<0) to front side (s>=0)
-		if s0 < 0.0 and s1 >= 0.0 and s1 > s0:
-			var u = clamp(-s0 / (s1 - s0), 0.0, 1.0)
-			var t_cross = lerp(t0, t1, u)
+	# NEW: arm awarding only after the first post-spawn tick
+	var armed := bool(st.get("cp_armed", false))
+	var just_armed := false
+	if !armed:
+		var moved := prev_pos.distance_to(new_pos)
+		var dt = max(0.0, t - float(st.get("cp_arm_t0", prev_t)))
+		if moved >= cp_arm_distance or dt >= cp_arm_time:
+			armed = true
+			just_armed = true
+			st["cp_armed"] = true
 
-			# award once
-			var lap_before := int(st.get("lap", 0))
-			var hist: Array = st.get("cp_history", [])
-			hist.append({ "index": idx, "lap": lap_before, "t": t_cross })
-			if hist.size() > 256: hist.pop_front()
-			st["cp_history"] = hist
-			st["checkpoints"] = int(st.get("checkpoints", 0)) + 1
-			st["time_collected"] = t_cross
-			checkpoint_collected.emit(car, idx, lap_before, t_cross)
+	# 2) Checkpoint by oriented gate crossing (only if armed and not just armed this tick)
+	if armed and !just_armed:
+		var p0 := prev_pos
+		var p1 := new_pos
+		var t0 := prev_t
+		var t1 := t
+		var n := _cp_gate_pos.size()
+		var idx := wrapi(int(st.get("index", 0)), 0, n)
+		var safety := 0
+		while safety < n:
+			var gpos := _cp_gate_pos[idx]
+			var gdir := _cp_gate_dir[idx]  # forward tangent
+			var s0 := gdir.dot(p0 - gpos)
+			var s1 := gdir.dot(p1 - gpos)
+			# Forward crossing: from back side (s<0) to front side (s>=0)
+			if s0 < 0.0 and s1 >= 0.0 and s1 > s0:
+				var u = clamp(-s0 / (s1 - s0), 0.0, 1.0)
+				var t_cross = lerp(t0, t1, u)
 
-			# next gate
-			var was_last := (idx == n - 1)
-			idx = (idx + 1) % n
-			st["index"] = idx
+				# award once
+				var lap_before := int(st.get("lap", 0))
+				var hist: Array = st.get("cp_history", [])
+				hist.append({ "index": idx, "lap": lap_before, "t": t_cross })
+				if hist.size() > 256: hist.pop_front()
+				st["cp_history"] = hist
+				st["checkpoints"] = int(st.get("checkpoints", 0)) + 1
+				st["time_collected"] = t_cross
+				checkpoint_collected.emit(car, idx, lap_before, t_cross)
 
-			# Lap++ when wrapping to 0; stamp sector-1 start time here
-			if was_last:
-				var new_lap := lap_before + 1
-				st["lap"] = new_lap
-				if _lap_start_sector_index != -1:
-					var pass_map: Dictionary = st.get("sector_pass", {})
-					if !pass_map.has(_lap_start_sector_index):
-						pass_map[_lap_start_sector_index] = {"last_start_t": -1.0, "last_end_t": -1.0, "last_time": -1.0}
-					var rec: Dictionary = pass_map[_lap_start_sector_index]
-					rec["last_start_t"] = t_cross
-					pass_map[_lap_start_sector_index] = rec
-					st["sector_pass"] = pass_map
-				lap_changed.emit(car, new_lap)
+				# next gate
+				var was_last := (idx == n - 1)
+				idx = (idx + 1) % n
+				st["index"] = idx
 
-			# Continue in case multiple gates were crossed this frame
-			safety += 1
-			p0 = p0.lerp(p1, u)
-			t0 = t_cross
-			continue
-		break
+				# Lap++ when wrapping to 0; stamp sector-1 start time here
+				if was_last:
+					var new_lap := lap_before + 1
+					st["lap"] = new_lap
+					if _lap_start_sector_index != -1:
+						var pass_map: Dictionary = st.get("sector_pass", {})
+						if !pass_map.has(_lap_start_sector_index):
+							pass_map[_lap_start_sector_index] = {"last_start_t": -1.0, "last_end_t": -1.0, "last_time": -1.0}
+						var rec: Dictionary = pass_map[_lap_start_sector_index]
+						rec["last_start_t"] = t_cross
+						pass_map[_lap_start_sector_index] = rec
+						st["sector_pass"] = pass_map
+					lap_changed.emit(car, new_lap)
+
+				# Continue in case multiple gates were crossed this frame
+				safety += 1
+				p0 = p0.lerp(p1, u)
+				t0 = t_cross
+				continue
+			break
 
 	# 3) store prev for next frame
 	st["prev_pos_world"] = new_pos
