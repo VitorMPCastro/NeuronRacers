@@ -1,6 +1,7 @@
 extends Node
 class_name DataBroker
 
+# Cache: path -> tokens
 var _path_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -17,12 +18,13 @@ func get_value(provider: Object, path: String) -> Variant:
 	if provider == null or path.is_empty():
 		return null
 
-	# Fast paths
+	# Fast paths (no reflection)
 	if provider is Car:
 		match path:
 			"car_data.fitness": return (provider as Car).fitness
 			"car_data.time_alive": return (provider as Car).time_alive
 			"total_checkpoints": return RaceProgressionManager.get_checkpoint_count_static(provider)
+			"distance_to_next_checkpoint": return RaceProgressionManager.get_distance_to_next_checkpoint_static(provider)
 			"get_sector_time(1)": return (provider as Car).get_sector_time(1)
 			"get_sector_time(2)": return (provider as Car).get_sector_time(2)
 			"get_sector_time(3)": return (provider as Car).get_sector_time(3)
@@ -34,6 +36,7 @@ func get_value(provider: Object, path: String) -> Variant:
 				return p.get_full_name() if p and p.has_method("get_full_name") else ""
 			_: pass
 
+	# Dynamic path: obj.prop or obj.method(args) chaining
 	var tokens: Array = _compile_path(path)
 	var cur: Variant = provider
 	for t in tokens:
@@ -55,7 +58,7 @@ func get_value(provider: Object, path: String) -> Variant:
 			if typeof(cur) == TYPE_OBJECT:
 				var obj := cur as Object
 				if obj.has_method(tok.token_name):
-					cur = obj.call(tok.token_name)
+					cur = obj.call(tok.token_name)  # zero-arg getter
 				else:
 					cur = obj.get(tok.token_name)
 			elif typeof(cur) == TYPE_DICTIONARY:
@@ -68,6 +71,11 @@ func get_value(provider: Object, path: String) -> Variant:
 			else:
 				return null
 	return cur
+
+class Token:
+	var token_name: String = ""
+	var is_call: bool = false
+	var args: Array = []
 
 func _compile_path(path: String) -> Array:
 	var cached = _path_cache.get(path)
@@ -108,8 +116,3 @@ func _parse_args(s: String) -> Array:
 				a = a.substr(1, a.length() - 2)
 			args.append(a)
 	return args
-
-class Token:
-	var token_name: String = ""
-	var is_call: bool = false
-	var args: Array = []

@@ -203,12 +203,50 @@ func divide_sectors() -> Dictionary[String, Sector]:
 func generate_checkpoints() -> Dictionary[String, int]:
 	if center_line == null or center_line.points.size() < 2 or track.track_checkpoints <= 0:
 		return {}
-	
-	var points_per_checkpoint = center_line.points.size() / track.track_checkpoints
-	
-	for i in range(track.track_checkpoints):
-		var index = int(i * points_per_checkpoint) % center_line.points.size()
-		var checkpoint_name = "Checkpoint_%d" % (i + 1)
-		checkpoints[checkpoint_name] = index
+	checkpoints.clear()
+
+	var n := center_line.points.size()
+	var k = max(1, track.track_checkpoints)
+	var step := float(n) / float(k)
+
+	# Offset by half-step so no CP sits exactly at index 0 (lap line)
+	var start_offset := step * 0.5
+
+	# Initial picks
+	var picked: Array[int] = []
+	for i in range(k):
+		var idx := int(round(start_offset + i * step)) % n
+		picked.append(idx)
+
+	# Dedupe and enforce minimal spacing in index space for closed ring
+	picked.sort()
+	var unique: Array[int] = []
+	var min_idx_gap := int(max(1, floor(step * 0.35)))  # ≈ 35% of ideal spacing
+	for idx in picked:
+		if unique.is_empty():
+			unique.append(idx)
+			continue
+		var prev = unique.back()
+		if abs(idx - prev) < min_idx_gap:
+			# Too close: push it forward by the remaining gap
+			idx = (prev + min_idx_gap) % n
+		if unique.size() > 1 and idx == unique.back():
+			continue
+		unique.append(idx)
+
+	# Edge-case: last near first over wrap
+	if unique.size() >= 2:
+		var first := unique[0]
+		var last = unique.back()
+		var wrap_gap = (n - last) + first
+		if wrap_gap < min_idx_gap:
+			# Push 'first' forward to keep spacing across the lap line
+			unique[0] = (last + min_idx_gap) % n
+			unique.sort()
+
+	# Build dictionary names in visiting order (1-based)
+	for i in range(unique.size()):
+		var check_name := "Checkpoint_%d" % (i + 1)
+		checkpoints[check_name] = unique[i]
 
 	return checkpoints

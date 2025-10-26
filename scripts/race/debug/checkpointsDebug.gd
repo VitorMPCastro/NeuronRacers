@@ -50,7 +50,9 @@ func _draw() -> void:
 	if cps.is_empty():
 		return
 
-	var prog = _rpm.get_checkpoints_progress()
+	var prog := PackedFloat32Array()
+	if _rpm.has_method("get_checkpoints_progress"):
+		prog = _rpm.get_checkpoints_progress()
 	var n := cps.size()
 
 	# Lines in visiting order

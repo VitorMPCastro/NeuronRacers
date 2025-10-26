@@ -10,6 +10,8 @@ static var _singleton: RaceProgressionManager = null
 
 # Prebaked sector gates (bases in [0, track_length))
 var _sector_gates: Array = []  # [{ i:int (1-based), start: float, end: float }]
+var _lap_start_sector_index: int = -1      # NEW: sector whose start is the lap line
+const BASE_EPS := 1e-4
 
 @export var track_path: NodePath
 @export var track_data_path: NodePath
@@ -66,7 +68,7 @@ func _exit_tree() -> void:
 	_dbg_print("exit_tree; singleton cleared")
 
 func _ready() -> void:
-	# keep your existing _bind_track_refs/_rebuild_cache as-is
+	_bind_track_refs()  # ensure bound before cache/rebuild
 	if track and track.has_signal("track_built") and not track.track_built.is_connected(_on_track_built):
 		track.track_built.connect(_on_track_built)
 	_rebuild_cache()
@@ -74,6 +76,12 @@ func _ready() -> void:
 
 func _physics_process(_dt: float) -> void:
 	_dbg_prints_left = debug_prints_per_frame
+	# Ensure refs are bound; bail early if not
+	if track_data == null or track == null:
+		_bind_track_refs()
+		if track_data == null or track == null:
+			_dbg_print("skipping tick: track/track_data not bound yet")
+			return
 	# Drain up to budget from _pending_latest
 	if _pending_latest.is_empty():
 		return
@@ -91,7 +99,6 @@ func _physics_process(_dt: float) -> void:
 			continue
 		var pos: Vector2 = rec.get("pos", Vector2.ZERO)
 		var t: float = float(rec.get("t", GameManager.global_time))
-		# Process a single car’s progress
 		_process_progress_for(car, pos, t)
 		processed += 1
 	if processed > 0:
@@ -108,6 +115,8 @@ func _bind_track_refs() -> void:
 			track_data = (track as Node).find_child("TrackData", true, false) as TrackData
 		if track_data == null:
 			track_data = get_tree().get_first_node_in_group("track_data") as TrackData
+	if debug_sector_timing:
+		_dbg_print("bind refs: track=" + str(track) + " track_data=" + str(track_data))
 
 func _on_track_built() -> void:
 	_dbg_print("track_built signal")
@@ -118,12 +127,13 @@ func _rebuild_cache() -> void:
 	_checkpoints_progress = PackedFloat32Array()
 	track_length = 0.0
 
-	if track_data == null:
+	if track_data == null or track == null:
+		_dbg_print("rebuild skipped: missing track/track_data")
 		return
 	if track_data.center_line == null or track_data.center_line.points.size() < 2:
 		return
 
-	# Ensure TrackData prepared its structures (use provided tools if available)
+	# Prepare TrackData
 	if track_data.has_method("calculate_track_length"):
 		track_data.calculate_track_length()
 	if track_data.has_method("divide_sectors"):
@@ -133,7 +143,7 @@ func _rebuild_cache() -> void:
 
 	track_length = track_data.track_length
 
-	# Order checkpoint keys by numeric suffix: "Checkpoint_1".."Checkpoint_N"
+	# Order checkpoint keys by numeric suffix
 	var ordered: Array = track_data.checkpoints.keys()
 	ordered.sort_custom(func(a, b):
 		var ai := int(str(a).get_slice("_", 1))
@@ -146,51 +156,83 @@ func _rebuild_cache() -> void:
 		var idx := int(track_data.checkpoints[k])
 		idx = clamp(idx, 0, track_data.center_line.points.size() - 1)
 		var p_local: Vector2 = track_data.center_line.points[idx]
-		# Convert to world-space position for UI and distance queries
-		var p_world := track_data.track.to_global(p_local) if track_data.track else p_local
+		# World-space for debug/distance queries: use Track node transform
+		var p_world := track.to_global(p_local)
 		checkpoints.append(p_world)
 
-		# Absolute progress (always use local)
+		var base := 0.0
 		if track_data.has_method("get_segment_length"):
-			prog.append(track_data.get_segment_length(0, idx)) # now O(1) via cumulative_length
-		elif track_data.has_method("get_point_progress"):
-			prog.append(track_data.get_point_progress(track_data.center_line.points[idx]))
+			base = track_data.get_segment_length(0, idx)
 		else:
-			prog.append(float(idx))  # fallback monotonic
-
+			base = float(idx)
+		prog.append(_norm_base(base))   # NORMALIZE HERE
 	_checkpoints_progress = prog
 	checkpoints_changed.emit()
 	_rebuild_sector_gates()
 	_dbg_print("cache rebuilt; track_length=" + str(track_length) + " sectors=" + str(_sector_gates.size()))
 
+	# NEW: re-sync every registered car's next CP after rebuilding track/checkpoints
+	for car in car_state.keys():
+		var st: Dictionary = car_state[car]
+		if st == null: continue
+		var cur_base := float(st.get("last_progress", 0.0))
+		var idx := _find_next_cp_index(cur_base)
+		st["index"] = idx
+		st["next_cp_idx"] = idx
+		var base := float(_checkpoints_progress[idx]) if _checkpoints_progress.size() > 0 else 0.0
+		var lap := int(st.get("lap", 0))
+		var abs_prog := lap * track_length + cur_base
+		st["next_cp_gate"] = _first_gate_after(abs_prog, base, _eff_margin_for_base(base))
+		car_state[car] = st
+
 func _rebuild_sector_gates() -> void:
 	_sector_gates.clear()
-	if track_data == null or track_data.center_line == null:
-		_dbg_print("no track_data/center_line; gates cleared")
+	_lap_start_sector_index = -1
+	if track_data == null or track_length <= 0.0:
 		return
-	var last_idx := -1
-	var last_pos := Vector2.ZERO
-	for i in range(0, checkpoints.size()):
-		var cp := checkpoints[i]
-		if i > 0:
-			var seg_length := last_pos.distance_to(cp)
-			if seg_length > 1.0:
-				var gate_count := int(floor(seg_length / 1.0))
-				var gate_step := seg_length / float(gate_count)
-				for g in range(1, gate_count):
-					var dist := gate_step * float(g)
-					var _p = last_pos.lerp(cp, dist / seg_length)
-					_sector_gates.append({ "i": last_idx + 1, "start": dist, "end": dist })
-		last_idx += 1
-		last_pos = cp
+	var bases := track_data.cumulative_length
+	if bases.is_empty():
+		return
+	var sec_dict := track_data.sectors
+	if sec_dict.is_empty():
+		return
+
+	var keys := sec_dict.keys()
+	keys.sort_custom(func(a, b):
+		var ai := int(str(a).get_slice("_", 1))
+		var bi := int(str(b).get_slice("_", 1))
+		return ai < bi
+	)
+
+	for key in keys:
+		var sec: Sector = sec_dict[key]
+		var s_idx := clampi(sec.start_index, 0, bases.size() - 1)
+		var e_idx := clampi(sec.end_index, 0, bases.size() - 1)
+		var s_base := _norm_base(float(bases[s_idx]))
+		var e_base := _norm_base(float(bases[e_idx]))
+		var i1 := int(str(key).get_slice("_", 1))
+		_sector_gates.append({ "i": i1, "start": s_base, "end": e_base })
+		if s_base <= BASE_EPS:
+			_lap_start_sector_index = i1
+
+	if _lap_start_sector_index == -1 and _sector_gates.size() > 0:
+		var best_i := -1
+		var best_s := INF
+		for g in _sector_gates:
+			var sb := float(g["start"])
+			if sb < best_s:
+				best_s = sb
+				best_i = int(g["i"])
+		_lap_start_sector_index = best_i
 
 	if debug_sector_timing and _sector_gates.size() > 0:
 		var s := []
 		for g in _sector_gates:
 			s.append("S" + str(g["i"]) + "(start=" + str("%.2f" % float(g["start"])) + ", end=" + str("%.2f" % float(g["end"])) + ")")
-		_dbg_print("sector gates: " + ", ".join(s))
+		_dbg_print("sector gates: " + ", ".join(s) + "; lap_start_sector_index=S" + str(_lap_start_sector_index))
 
 func register_car(car: Node) -> void:
+	# Initialize per-car state
 	car_state[car] = {
 		"index": 0,
 		"checkpoints": 0,
@@ -201,9 +243,31 @@ func register_car(car: Node) -> void:
 		"seg_index": 0,
 		"samples": [],
 		"cp_history": [],
-		# NEW: per-sector pass cache: { i:int -> { "last_start_t": float, "last_end_t": float, "last_time": float } }
-		"sector_pass": {}
+		"sector_pass": {},
+		# Duplicate guards (kept for safety)
+		"last_awarded_idx": -1,
+		"last_awarded_gate_k": -1,
+		# NEW: deterministic next gate
+		"next_cp_idx": 0,
+		"next_cp_gate": 0.0
 	}
+
+	# Sync next checkpoint index and absolute gate to current position
+	if track != null and track_data != null and _checkpoints_progress.size() > 0 and car is Node2D:
+		var pos_local := track.to_local((car as Node2D).global_position)
+		var hint := 0
+		var cur_base := 0.0
+		if track_data.has_method("get_point_progress_walk"):
+			var res := track_data.get_point_progress_walk(pos_local, hint, 8)
+			cur_base = clamp(float(res["progress"]), 0.0, max(0.0, track_length))
+			car_state[car]["seg_index"] = int(res["index"])
+			car_state[car]["last_progress"] = cur_base
+		var idx := _find_next_cp_index(cur_base)
+		car_state[car]["index"] = idx
+		car_state[car]["next_cp_idx"] = idx
+		var base := float(_checkpoints_progress[idx])
+		var gate := _first_gate_after(0.0 + cur_base, base, _eff_margin_for_base(base))
+		car_state[car]["next_cp_gate"] = gate
 	_dbg_print("register_car: " + str(car))
 
 func unregister_car(car: Node) -> void:
@@ -221,79 +285,190 @@ func update_car_progress(car: Node, pos: Vector2, t: float = -INF) -> void:
 
 
 func _process_progress_for(car: Node, new_pos: Vector2, t: float) -> void:
-	var st = car_state[car]
-	var last := float(st["last_progress"])
-	var lap := int(st["lap"])
+	if track_data == null or track == null or track_length <= 0.0:
+		return
+	var st = car_state.get(car, null)
+	if st == null:
+		return
 
-	# Compute progress in Track local space
-	var query_pos := new_pos
-	if track_data and track_data.track:
-		query_pos = track_data.track.to_local(new_pos)
+	var last := float(st.get("last_progress", 0.0))
+	var lap := int(st.get("lap", 0))
 
-	# Walk along from last known segment index (very few steps)
+	# Project to track local and compute base progress (0..L)
+	var query_pos := track.to_local(new_pos)
 	var hint_seg := int(st.get("seg_index", 0))
-	if hint_seg == 0 and track_data and track_data.track_length > 0.0:
+	if hint_seg == 0 and track_data.track_length > 0.0:
 		hint_seg = track_data.index_from_progress_linear(last)
 	var result := track_data.get_point_progress_walk(query_pos, hint_seg, 8)
 	var cur = clamp(float(result["progress"]), 0.0, max(0.0, track_length))
 	st["seg_index"] = int(result["index"])
 
-	# Wrap and monotonic progress across laps
-	if track_length > 0.0 and cur < last and (last - cur) > WRAP_THRESHOLD * track_length:
-		lap += 1
-		lap_changed.emit(car, lap)
-	var mprog = lap * track_length + cur
-
-	# Get previous sample (if any)
-	var prev_p := -1.0
-	var prev_t := -1.0
+	# Build absolute, monotonically increasing progress across lap
 	var samples: Array = st.get("samples", [])
-	if samples.size() > 0:
-		prev_p = float(samples.back()["p"])
-		prev_t = float(samples.back()["t"])
+	var prev_p := (samples.back()["p"] as float) if samples.size() > 0 else (lap * track_length + last)
+	var prev_t := (samples.back()["t"] as float) if samples.size() > 0 else t
+	var cur_abs = lap * track_length + cur
+	if cur < last:
+		cur_abs += track_length  # crossed the lap line this frame
 
-	# Append current sample first so buffers are consistent
-	samples.append({ "p": mprog, "t": t })
+	# Sector crossings from prev_p -> cur_abs (monotonic)
+	if _sector_gates.size() > 0 and samples.size() > 0:
+		_update_sector_crossings(st, prev_p, prev_t, cur_abs, t)
+
+	# Deterministic awarding vs next_cp_gate
+	_award_until_gate(car, st, cur_abs, t)
+
+	# Append sample and finalize lap/base for storage
+	samples.append({ "p": cur_abs, "t": t })
 	if samples.size() > 64:
 		samples.pop_front()
 	st["samples"] = samples
-	_dbg_print("sample p=" + str("%.2f" % float(mprog)) + " t=" + str("%.2f" % t))
 
+	# Update canonical lap and base from absolute progress
+	var new_lap := int(floor(cur_abs / track_length))
+	var new_base = cur_abs - float(new_lap) * track_length
 
-	# Detect sector boundary crossings between previous and current sample, and cache sector times
-	if prev_p >= 0.0 and prev_t >= 0.0 and track_length > 0.0 and not _sector_gates.is_empty():
-		_update_sector_crossings(st, prev_p, prev_t, mprog, t)
+	# Optional: stamp sector 1 start at lap change (helps S1 timing on exact lap line)
+	if new_lap > lap and _lap_start_sector_index != -1:
+		var pass_map: Dictionary = st.get("sector_pass", {})
+		if !pass_map.has(_lap_start_sector_index):
+			pass_map[_lap_start_sector_index] = { "last_start_t": -1.0, "last_end_t": -1.0, "last_time": -1.0 }
+		var rec: Dictionary = pass_map[_lap_start_sector_index]
+		rec["last_start_t"] = t
+		pass_map[_lap_start_sector_index] = rec
+		st["sector_pass"] = pass_map
+		lap_changed.emit(car, new_lap)
 
-	# Checkpoint collection (unchanged)
-	var idx := int(st["index"])
-	var collected: Array = st["collected_ids"]
-	var count := _checkpoints_progress.size()
-	if count > 0:
-		while true:
-			var target_prog := lap * track_length + float(_checkpoints_progress[idx])
-			if target_prog < mprog - (track_length * 0.5):
-				target_prog += track_length
-			var target_with_margin = target_prog + max(0.0, award_progress_margin)
-			if mprog + EPS >= target_with_margin:
-				collected.append(idx)
-				st["checkpoints"] = int(st["checkpoints"]) + 1
-				st["time_collected"] = t
-				# NEW: log checkpoint history (bounded)
-				var hist: Array = st.get("cp_history", [])
-				hist.append({ "index": idx, "lap": lap, "t": t })
-				if hist.size() > 256:
-					hist.pop_front()
-				st["cp_history"] = hist
-				checkpoint_collected.emit(car, idx, lap, t)
-				idx = (idx + 1) % count
-				continue
-			break
-
-	# Store updated state
-	st["index"] = idx
-	st["last_progress"] = cur
-	st["lap"] = lap
+	st["last_progress"] = new_base
+	st["lap"] = new_lap
 	car_state[car] = st
+
+# --- helpers ---
+func _find_next_cp_index(cur_base: float) -> int:
+	# Binary search first checkpoint strictly ahead of current base (plus margin)
+	var n := _checkpoints_progress.size()
+	if n == 0:
+		return 0
+	var target = cur_base + max(0.0, award_progress_margin)
+	var lo := 0
+	var hi := n
+	while lo < hi:
+		var mid := (lo + hi) >> 1
+		if _checkpoints_progress[mid] <= target:
+			lo = mid + 1
+		else:
+			hi = mid
+	return lo % n
+
+func _eff_margin_for_base(base: float) -> float:
+	# Do not push lap-line CP past wrap with margin
+	return 0.0 if (track_length - base) <= (award_progress_margin + BASE_EPS) else award_progress_margin
+
+func _first_gate_after(abs_prog: float, base: float, margin: float) -> float:
+	# gate = base + k*L, gate >= abs_prog + margin
+	var target = abs_prog + max(0.0, margin)
+	var k := int(ceil((target - base) / track_length))
+	if k < 0: k = 0
+	return base + float(k) * track_length
+
+func _award_until_gate(car: Node, st: Dictionary, abs_prog: float, t: float) -> void:
+	var n := _checkpoints_progress.size()
+	if n == 0:
+		return
+	var idx := int(st.get("next_cp_idx", st.get("index", 0)))
+	idx = wrapi(idx, 0, n)
+	var gate := float(st.get("next_cp_gate", 0.0))
+
+	var safety := 0
+	while safety < n:
+		var base := float(_checkpoints_progress[idx])
+		var eff_margin = _eff_margin_for_base(base)
+		# Award if we passed the gate (respecting margin for this CP)
+		if abs_prog + eff_margin + EPS >= gate:
+			# Emit and record
+			var lap_at_gate := int(floor(gate / track_length))
+			var hist: Array = st.get("cp_history", [])
+			hist.append({ "index": idx, "lap": lap_at_gate, "t": t })
+			if hist.size() > 256: hist.pop_front()
+			st["cp_history"] = hist
+			st["checkpoints"] = int(st.get("checkpoints", 0)) + 1
+			st["time_collected"] = t
+			checkpoint_collected.emit(car, idx, lap_at_gate, t)
+
+			# Prepare next CP absolute gate strictly after current gate
+			var prev_gate := gate
+			idx = (idx + 1) % n
+			var next_base := float(_checkpoints_progress[idx])
+			var k_next := int(floor((prev_gate - next_base) / track_length)) + 1
+			gate = next_base + float(k_next) * track_length
+
+			safety += 1
+			continue
+		break
+
+	# Store next gate and next index (and keep 'index' in sync for UI)
+	st["next_cp_idx"] = idx
+	st["next_cp_gate"] = gate
+	st["index"] = idx
+
+# Award next checkpoints whose gates fall within [p0, p1]
+func _award_checkpoints_between(car: Node, st: Dictionary, p0: float, p1: float, t: float) -> void:
+	if p1 <= p0:
+		return
+	var n := _checkpoints_progress.size()
+	if n == 0:
+		return
+
+	var idx := int(st.get("index", 0))
+	if idx < 0 or idx >= n:
+		idx = _find_next_cp_index(float(st.get("last_progress", 0.0)))
+
+	var last_aw_idx := int(st.get("last_awarded_idx", -1))
+	var last_aw_k := int(st.get("last_awarded_gate_k", -1))
+
+	var safety := 0
+	while safety < n:
+		var base := float(_checkpoints_progress[idx])  # in [0, L)
+		# first occurrence of this CP gate strictly after p0
+		var k := int(floor((p0 - base) / track_length)) + 1
+		var gate := base + float(k) * track_length
+
+		# Do not push the lap-line CP past wrap with margin
+		var eff_margin := award_progress_margin
+		if (track_length - base) <= (award_progress_margin + BASE_EPS):
+			eff_margin = 0.0
+
+		# If we already awarded this exact CP at this absolute gate, skip (idempotent)
+		if idx == last_aw_idx and k == last_aw_k:
+			idx = (idx + 1) % n
+			safety += 1
+			continue
+
+		if gate <= p1 + eff_margin + EPS:
+			# award (idempotent by (idx,k) pair)
+			var hist: Array = st.get("cp_history", [])
+			var lap_at_gate := int(floor(gate / track_length))
+			hist.append({ "index": idx, "lap": lap_at_gate, "t": t })
+			if hist.size() > 256:
+				hist.pop_front()
+			st["cp_history"] = hist
+			st["checkpoints"] = int(st.get("checkpoints", 0)) + 1
+			st["time_collected"] = t
+
+			# FIX: emit the car node, not the state dictionary
+			checkpoint_collected.emit(car, idx, lap_at_gate, t)
+
+			# Update duplicate guard and advance
+			last_aw_idx = idx
+			last_aw_k = k
+			idx = (idx + 1) % n
+			safety += 1
+			continue
+		break
+
+	st["index"] = idx
+	st["last_awarded_idx"] = last_aw_idx
+	st["last_awarded_gate_k"] = last_aw_k
 
 func get_next_checkpoint_position(car: Node) -> Vector2:
 	if not _can_progress() or not car_state.has(car):
@@ -470,3 +645,15 @@ func _gate_crossing_time(p0: float, t0: float, p1: float, t1: float, base: float
 		return -1.0
 	var u := (gate - p0) / (p1 - p0)
 	return t0 + u * (t1 - t0)
+
+func _norm_base(v: float) -> float:
+	if track_length <= 0.0:
+		return v
+	if v >= track_length:
+		return max(0.0, track_length - BASE_EPS)
+	if v < 0.0:
+		return 0.0
+	return v
+
+func get_checkpoints_progress() -> PackedFloat32Array:
+	return _checkpoints_progress
