@@ -17,7 +17,6 @@ config/icon="uid://dll0n508iv2v8"
 
 [debug]
 
-settings/stdout/print_fps=true
 settings/gdscript/max_call_stack=2047
 
 [display]
