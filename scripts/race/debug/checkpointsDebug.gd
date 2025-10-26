@@ -2,7 +2,7 @@
 extends Node2D
 class_name CheckpointsDebug
 
-@export var enabled: bool = true
+@export var enabled: bool = false
 @export var draw_indices: bool = true
 @export var draw_order_lines: bool = true
 @export var draw_progress_values: bool = false

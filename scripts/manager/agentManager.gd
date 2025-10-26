@@ -74,8 +74,14 @@ var timer = 0.0
 @onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
 @onready var sprite_manager: SpriteManager = gm.find_child("SpriteManager") as SpriteManager
 
-var _ai_timer: Timer
+@export var ai_phases: int = 4            # split AI decisions over P phases
+var _ai_phase_idx: int = 0
+
+# Optional: keep decisions/sec bounded as population grows
+@export var auto_scale_ai_aps: bool = true
+@export var target_decisions_per_sec: int = 600   # total decisions/sec across all cars
 var _ai_aps: float = 20.0
+var _ai_timer: Timer
 
 # NEW: queued brains to use on next_generation
 var queued_brains_from_json: Array[MLP] = []
@@ -96,10 +102,7 @@ func _ready():
 	_ai_timer.process_callback = Timer.TIMER_PROCESS_PHYSICS
 	add_child(_ai_timer)
 	_ai_timer.timeout.connect(_on_ai_timer_timeout)
-
-	# Initialize and START the timer based on the exported APS
 	_update_ai_timer()
-
 	DirAccess.make_dir_recursive_absolute(save_dir)
 	spawn_population()
 
@@ -112,8 +115,14 @@ func _process(delta):
 		next_generation()
 
 func _on_ai_timer_timeout() -> void:
+	# Advance phase first so cars see the current phase this tick
+	if ai_phases > 1:
+		_ai_phase_idx = (_ai_phase_idx + 1) % ai_phases
 	_update_car_fitness_budgeted()
 	ai_tick.emit()
+
+func get_current_ai_phase() -> int:
+	return _ai_phase_idx
 
 # Replace update_car_fitness() with a budgeted version
 func _update_car_fitness_budgeted() -> void:
@@ -157,6 +166,11 @@ func _try_kill_stagnant(car: Car) -> void:
 func _update_ai_timer() -> void:
 	if _ai_timer == null:
 		return
+	var aps := _ai_aps
+	if auto_scale_ai_aps and population_size > 0:
+		var target := float(target_decisions_per_sec)
+		aps = clampf(target / float(max(1, population_size)), 2.0, 30.0)  # clamp to sane bounds
+		_ai_aps = aps
 	if _ai_aps <= 0.0:
 		_ai_timer.stop()              # 0 -> ungated: cars decide every physics frame
 		return
@@ -165,6 +179,10 @@ func _update_ai_timer() -> void:
 	if !_ai_timer.is_stopped():
 		_ai_timer.stop()
 	_ai_timer.start()
+
+# Call this after changing population_size or when spawning a new generation
+func _refresh_ai_scaling() -> void:
+	_update_ai_timer()
 
 func _current_hidden_sizes() -> PackedInt32Array:
 	return hidden_layers if hidden_layers.size() > 0 else PackedInt32Array([hidden_layer_neurons])

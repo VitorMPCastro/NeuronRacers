@@ -70,6 +70,7 @@ var _heading_angle: float = 0.0
 
 # AI gating (read-only reference to AgentManager; Pilot handles gating)
 var _am: AgentManager = null
+var _ai_phase: int = 0   # this car’s assigned decision phase (0..ai_phases-1)
 
 # SIGNALS AND EVENTS
 signal car_death
@@ -192,19 +193,36 @@ func _physics_process(delta: float) -> void:
 		var _collision = get_slide_collision(i)
 		die()
 
-func get_ai_inputs() -> Array:
-	# Ray sensors (normalized)
-	var inputs: Array = []
-	var rig := $RayParent as CarSensors
-	if rig:
-		var packed: PackedFloat32Array = rig.get_values(self)
-		# Convert to Array to match MLP.forward signature
-		for i in packed.size():
-			inputs.append(packed[i])
+var _inputs_buf: PackedFloat32Array = PackedFloat32Array()
 
-	# Telemetry features (queried via DataBroker, like leaderboard columns)
-	inputs.append_array(_get_telemetry_inputs())
-	return inputs
+func get_ai_inputs() -> PackedFloat32Array:
+	var rig := $RayParent as CarSensors
+	var sensor_vals: PackedFloat32Array = rig.get_values(self) if rig else PackedFloat32Array()
+
+	# Ensure buffer fits sensors + features
+	var want := sensor_vals.size() + int(ai_feature_paths.size())
+	if _inputs_buf.size() != want:
+		_inputs_buf.resize(want)
+
+	# Copy sensors (fast memcpy-like loop)
+	for i in sensor_vals.size():
+		_inputs_buf[i] = sensor_vals[i]
+
+	# Telemetry features (numeric only)
+	if _car_telemetry and _car_telemetry.data_broker:
+		var k := sensor_vals.size()
+		for i in ai_feature_paths.size():
+			var v = _car_telemetry.data_broker.get_value(self, ai_feature_paths[i])
+			match typeof(v):
+				TYPE_INT, TYPE_FLOAT: _inputs_buf[k + i] = float(v)
+				_: _inputs_buf[k + i] = 0.0
+	else:
+		# Fill zeros if broker unavailable
+		var k := sensor_vals.size()
+		for i in ai_feature_paths.size():
+			_inputs_buf[k + i] = 0.0
+
+	return _inputs_buf
 
 func ai_input_size() -> int:
 	var ray_count := 0
@@ -238,17 +256,19 @@ func handle_input(delta: float) -> void:
 		var pilot = car_data.pilot
 		if pilot == null:
 			return
-
 		var aps := (_am.ai_actions_per_second if _am else 0.0)
 
-		# Update targets on ai_tick; keep applying every frame
-		if pilot.can_decide(aps):
+		# Phase gate: only decide on our assigned phase
+		var phase_ok := true
+		if _am and _am.ai_phases > 1:
+			phase_ok = (_am.get_current_ai_phase() == _ai_phase)
+
+		if phase_ok and pilot.can_decide(aps):
 			var inputs = get_ai_inputs()
 			var act = pilot.decide(inputs)
-			_ctrl_target_steer = clamp(float(act.get("steer", 0.0)), -1.0, 1.0)
-			_ctrl_target_throttle = clamp(float(act.get("throttle", 0.0)), -1.0, 1.0)
+			_ctrl_target_steer = act.steer
+			_ctrl_target_throttle = act.throttle
 			pilot.consume_decision(aps)
-
 		# Smooth application each frame
 		var hz = max(0.0, control_smooth_hz)
 		var alpha = 1.0 if hz <= 0.0 else (1.0 - pow(2.0, -delta * hz))
@@ -482,6 +502,11 @@ func reset_for_spawn(spawn_pos: Vector2, spawn_rot: float = 0.0) -> void:
 
 	# Re-run spawn logic (timestamp, RP registration, etc.)
 	car_spawn.emit()
+	# Assign a random decision phase to spread load
+	if _am and _am.ai_phases > 1:
+		_ai_phase = randi() % _am.ai_phases
+	else:
+		_ai_phase = 0
 
 func prepare_for_pool() -> void:
 	# Make the car inert and hidden before pooling

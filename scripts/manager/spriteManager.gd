@@ -35,13 +35,13 @@ func _extract_number(file_name: String) -> int:
 			break
 	return int(digits) if digits != "" else -1
 
-func get_random_car_texture(seed: int = -1) -> Texture2D:
+func get_random_car_texture(skin_seed: int = -1) -> Texture2D:
 	if _all_textures.is_empty():
 		_preload_car_textures()
 	if _all_textures.is_empty():
 		return null
-	if seed >= 0:
-		return _all_textures[abs(seed) % _all_textures.size()]
+	if skin_seed >= 0:
+		return _all_textures[abs(skin_seed) % _all_textures.size()]
 	return _all_textures[randi() % _all_textures.size()]
 
 func get_car_texture_by_number(number: int) -> Texture2D:
