@@ -160,16 +160,16 @@ func _exit_tree() -> void:
 		_registered_with_rpm = false
 	# Clean up logic (if any)
 
-func _physics_process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	acceleration = Vector2.ZERO
 
 	# Input and steering
-	handle_input(delta)
-	calculate_steering(delta)
+	handle_input(_delta)
+	calculate_steering(_delta)
 
 	# Integrate physics
-	_apply_friction_and_drag(delta)
-	velocity += acceleration * delta
+	_apply_friction_and_drag(_delta)
+	velocity += acceleration * _delta
 
 	# Optional: clamp speeds
 	var forward_dot := velocity.dot(transform.x)
@@ -191,7 +191,7 @@ func _physics_process(delta: float) -> void:
 
 	# Progress tracking (gate by time AND distance to reduce TrackData work)
 	if _rpm:
-		_rpm_accum += delta
+		_rpm_accum += _delta
 		var moved2 := (global_position - _last_rpm_pos).length_squared()
 		var dist2 := rpm_min_distance_px * rpm_min_distance_px
 		if _rpm_accum >= _rpm_step or moved2 >= dist2:
