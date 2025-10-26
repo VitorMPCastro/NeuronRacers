@@ -6,22 +6,22 @@ var timer: Timer = Timer.new()
 
 @onready var car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
 @onready var agent_manager: AgentManager = car_telemetry.agent_manager if car_telemetry else null
+@onready var data_broker: DataBroker = get_tree().get_first_node_in_group("data_broker") as DataBroker
 
 @export var sort_field: String = "Fitness"
-@export var update_interval_s: float = 0.2
-# Control whether default columns can be used when no custom columns are provided
+@export var update_interval_s: float = 0.3
 @export var load_default_columns: bool = true
-# Custom columns you can set in the Inspector (leave empty to use defaults when allowed)
 @export var custom_columns: Array[LeaderboardColumn] = []
 
-# Runtime-active columns (resolved from custom_columns or defaults)
-var columns: Array[LeaderboardColumn] = []
+# NEW: show only top N rows; pool row controls
+@export var max_rows: int = 20
+var _entry_pool: Array[LeaderboardEntry] = []
 
-# Header HBox (first child)
+var columns: Array[LeaderboardColumn] = []
 var header_row: HBoxContainer
+var _rebuild_deferred := false
 
 func _ready() -> void:
-	# Connect to generation spawn signal to refresh rows for the new cars
 	if agent_manager:
 		agent_manager.population_spawned.connect(_on_population_spawned)
 
@@ -30,25 +30,24 @@ func _ready() -> void:
 	timer.timeout.connect(_on_timer_timeout)
 	timer.start()
 
+	if data_broker == null and agent_manager:
+		var root := agent_manager.get_parent() as Node
+		if root:
+			data_broker = root.find_child("DataBroker", true, false) as DataBroker
+
 	_resolve_columns()
 	_build_header()
 	_build_rows()
 
-func _resolve_columns() -> void:
-	columns.clear()
-
-	if load_default_columns:
-		# Requires your LeaderboardColumn to implement make_default_columns()
-		columns += LeaderboardColumn.make_default_columns()
-
-	if !custom_columns.is_empty():
-		columns += custom_columns.duplicate()
-	
-	if columns.is_empty():
-		push_error("Leaderboard: No columns defined and load_default_columns is false. Please define custom columns or enable default columns.")
-
 func _on_population_spawned() -> void:
-	# Re-evaluate schema (in case inspector changed), then rebuild
+	# Defer heavy UI rebuild to avoid sharing the same frame as spawn_population()
+	if _rebuild_deferred:
+		return
+	_rebuild_deferred = true
+	call_deferred("_do_rebuild_rows")
+
+func _do_rebuild_rows() -> void:
+	_rebuild_deferred = false
 	_resolve_columns()
 	_build_header()
 	_build_rows()
@@ -56,6 +55,83 @@ func _on_population_spawned() -> void:
 
 func _on_timer_timeout() -> void:
 	update_leaderboard()
+
+func _build_rows() -> void:
+	if columns.is_empty():
+		return
+	if agent_manager == null:
+		return
+
+	# Keep only up to max_rows, pool the rest
+	var target := clampi(min(agent_manager.cars.size(), max_rows), 0, max_rows)
+	# Return extra entries to pool
+	while entries.size() > target:
+		var e = entries.pop_back()
+		if e.is_inside_tree():
+			remove_child(e)
+		_entry_pool.append(e)
+
+	# Add missing entries from pool/new
+	while entries.size() < target:
+		var entry = _entry_pool.pop_back() if _entry_pool.size() > 0 else LeaderboardEntry.new()
+		# Build fields only when newly created (no children)
+		if entry.get_child_count() == 0:
+			for col in columns:
+				entry.add_field(_make_field(col, false))
+		entries.append(entry)
+		add_child(entry)
+
+	# Header stays at index 0
+	if header_row and header_row.is_inside_tree():
+		move_child(header_row, 0)
+
+func update_leaderboard() -> void:
+	if columns.is_empty() or data_broker == null or agent_manager == null:
+		return
+
+	# Get top N cars by fitness with a single linear pass (no global sort)
+	var top := _top_n_cars(min(max_rows, agent_manager.cars.size()))
+
+	# Ensure we have matching number of rows
+	if entries.size() != top.size():
+		_build_rows()
+		if entries.size() != top.size():
+			return
+
+	# Update rows
+	for i in range(top.size()):
+		var car = top[i]
+		var row := entries[i]
+		row.set_car(car)
+		row.update_entry(data_broker)
+		row.set_rank(i + 1)
+		# Keep rows right after header
+		if row.get_parent() != self:
+			add_child(row)
+		move_child(row, i + 1) # header at 0
+
+func _top_n_cars(n: int) -> Array:
+	var out: Array = []
+	out.resize(0)
+	if n <= 0:
+		return out
+	# Keep a small sorted list by fitness (descending)
+	for c in agent_manager.cars:
+		if c == null or c.crashed:
+			continue
+		var f := float(c.fitness)
+		# insert into out
+		var inserted := false
+		for i in range(out.size()):
+			if f > float(out[i].fitness):
+				out.insert(i, c)
+				inserted = true
+				break
+		if not inserted:
+			out.append(c)
+		if out.size() > n:
+			out.resize(n)
+	return out
 
 # Create a field (cell) from a column definition
 func _make_field(col: LeaderboardColumn, is_header: bool) -> LeaderboardField:
@@ -82,81 +158,14 @@ func _build_header() -> void:
 
 	if columns.is_empty():
 		return
-
 	for col in columns:
 		header_row.add_child(_make_field(col, true))
 
-func _build_rows() -> void:
-	if agent_manager == null or columns.is_empty():
-		return
-	# Clear any existing entries (preserve header at index 0)
-	for e in entries:
-		if e.is_inside_tree():
-			remove_child(e)
-		e.queue_free()
-	entries.clear()
-
-	# Create entries for all cars using the same schema
-	for car in agent_manager.cars:
-		if car == null or car.crashed:
-			continue
-		var entry := LeaderboardEntry.new()
-		entry.set_car(car)
-
-		for col in columns:
-			entry.add_field(_make_field(col, false))
-
-		entries.append(entry)
-		add_child(entry)     # after header
-
-func update_leaderboard() -> void:
+func _resolve_columns() -> void:
+	columns.clear()
+	if load_default_columns:
+		columns += LeaderboardColumn.make_default_columns()
+	if !custom_columns.is_empty():
+		columns += custom_columns.duplicate()
 	if columns.is_empty():
-		return
-	# Update visible values (excluding "#" which is set after sorting)
-	for entry in entries:
-		entry.update_entry(car_telemetry)
-
-	# Sort entries by selected field
-	entries.sort_custom(_compare_entries)
-
-	# Reflect sorted order in UI (skip header at index 0)
-	var header_offset := 1
-	for i in range(entries.size()):
-		if entries[i].get_parent() != self:
-			add_child(entries[i])
-		move_child(entries[i], i + header_offset)
-		# Set placement after sorting
-		entries[i].set_rank(i + 1)
-
-func _compare_entries(a: LeaderboardEntry, b: LeaderboardEntry) -> bool:
-	var ia = a.find_field_index(sort_field)
-	var ib = b.find_field_index(sort_field)
-	var va = a.field_as_comparable(ia)
-	var vb = b.field_as_comparable(ib)
-
-	# Nulls last
-	if va == null and vb == null:
-		return false
-	if va == null:
-		return false
-	if vb == null:
-		return true
-
-	# Numbers: descending (higher first)
-	var na := typeof(va) in [TYPE_FLOAT, TYPE_INT]
-	var nb := typeof(vb) in [TYPE_FLOAT, TYPE_INT]
-	if na and nb:
-		return float(va) > float(vb)
-
-	# Strings: ascending
-	return str(va) < str(vb)
-
-func add_entry(entry: LeaderboardEntry) -> void:
-	entries.append(entry)
-	add_child(entry)
-
-func remove_entry(entry: LeaderboardEntry) -> void:
-	if entries.has(entry):
-		entries.erase(entry)
-		remove_child(entry)
-	entry.queue_free()
+		push_error("Leaderboard: No columns defined and load_default_columns is false. Please define custom columns or enable default columns.")

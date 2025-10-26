@@ -30,7 +30,7 @@ metadata/_custom_type_script = "uid://cahq3i68ntbym"
 [sub_resource type="Resource" id="Resource_pj36a"]
 script = ExtResource("4_m7cu8")
 title = "Velocity"
-query_path = "velocity.length()"
+query_path = "speed"
 align = 0
 weight = 1.0
 min_width = 100

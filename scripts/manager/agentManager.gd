@@ -26,6 +26,18 @@ class_name AgentManager
 		_update_ai_timer()
 @export var randomize_car_skins: bool = true
 
+# NEW: control how we decide NN input size and alignment
+@export var detect_input_size_from_scene: bool = false  # if true, probe car_scene; otherwise use configured input_layer_neurons
+@export var align_nn_to_provided_brains: bool = true    # when spawn_population receives brains, align NN config to those sizes
+
+# NEW: pooling to avoid spike on generation spawn
+@export var use_car_pooling: bool = true
+var _car_pool: Array[Car] = []
+
+@export_enum("Dump", "Archive") var pilot_retention: String = "Dump"
+@export var pilots_archive_path: String = "user://pilot_archive.json"
+var _pilot_archive: Array = []
+
 @export_category("Persistence")
 @export var save_dir: String = "user://generations"
 @export var autosave_each_generation: bool = false
@@ -117,9 +129,9 @@ func _mlp_hidden_sizes(mlp: MLP) -> PackedInt32Array:
 	return mlp.hidden_sizes if mlp.hidden_sizes.size() > 0 else PackedInt32Array([mlp.hidden_size])
 
 func _required_input_size_from_cars() -> int:
-	# Prefer live car scene probe if available; otherwise use input_layer_neurons
-	if car_scene == null:
-		return input_layer_neurons
+	# Prefer configured value to avoid accidental size drift (prevents random reinit)
+	if !detect_input_size_from_scene or car_scene == null:
+		return max(1, input_layer_neurons)
 	var probe := car_scene.instantiate()
 	var size := 0
 	if probe is Car:
@@ -131,59 +143,89 @@ func _required_input_size_from_cars() -> int:
 func spawn_population(brains: Array = []):
 	cars.clear()
 
+	# If we were given brains (from evolution or JSON), align config so we don't resize/mutate randomly
+	if align_nn_to_provided_brains and brains.size() > 0 and brains[0] is MLP:
+		_align_nn_config_to_brain(brains[0] as MLP)
+
 	var required_input := _required_input_size_from_cars()
-	var h_sizes := _current_hidden_sizes()
+	var desired_hidden := _current_hidden_sizes()
+
+	# Cache commonly used refs once
+	var gm_node = gm
+	var track := gm_node.find_child("Track") as Track
+	var use_center := track and is_instance_valid(track.center_line) and track.center_line.points.size() > 0
+	var base_spawn = (track.to_global(track.center_line.points[0]) if use_center else (trackOrigin.global_position if is_instance_valid(trackOrigin) else Vector2.ZERO))
 
 	for i in range(population_size):
-		var car = car_scene.instantiate()
-		car.use_ai = true
-
-		# Compute spawn position:
-		var spawn_pos := Vector2.ZERO
-		# Prefer exact center_line first point if available
-		var track := gm.find_child("Track") as Track
-		if track and is_instance_valid(track.center_line) and track.center_line.points.size() > 0:
-			spawn_pos = track.to_global(track.center_line.points[0])
-		elif is_instance_valid(trackOrigin):
-			# Fallback: TrackOrigin node (in world space)
-			spawn_pos = trackOrigin.global_position
-
-		car.global_position = spawn_pos
-		# ...existing code...
-		var pilot := PilotFactory.create_random_pilot()
-		if brains.size() > i:
-			var base: MLP = brains[i]
-			var base_hidden := _mlp_hidden_sizes(base)
-			var sizes_match := (
-				base.input_size == required_input and
-				base_hidden == h_sizes and
-				base.output_size == output_layer_neurons
-			)
-			if sizes_match:
-				pilot.brain = base.clone()
-			else:
-				push_warning("Provided brain size mismatch; reinitializing. Got in/hid/out=%s/%s/%s, need %s/%s/%s"
-					% [base.input_size, base_hidden, base.output_size, required_input, h_sizes, output_layer_neurons])
-				pilot.brain = MLP.new(required_input, h_sizes, output_layer_neurons)
+		var car: Car = null
+		if use_car_pooling and _car_pool.size() > 0:
+			car = _car_pool.pop_back()
 		else:
-			pilot.brain = MLP.new(required_input, h_sizes, output_layer_neurons)
+			car = car_scene.instantiate()
 
+		car.reset_for_spawn(base_spawn, 0.0)
+
+		# New pilot and brain
+		var pilot := PilotFactory.create_random_pilot()
+
+		# ALWAYS give the pilot a brain; avoid random reinit by cloning provided brain 1:1
+		var brain: MLP = null
+		if brains.size() > i and brains[i] != null:
+			var base: MLP = brains[i]
+			var mismatch := (
+				base.input_size != required_input or
+				_mlp_hidden_sizes(base) != desired_hidden or
+				base.output_size != output_layer_neurons
+			)
+			if mismatch:
+				# Align once more just in case the first brain differed (mixed sizes array)
+				if align_nn_to_provided_brains:
+					_align_nn_config_to_brain(base)
+					required_input = _required_input_size_from_cars()
+					desired_hidden = _current_hidden_sizes()
+				# Final check; if still mismatched, just clone (do NOT randomize with mutate)
+				brain = base.clone()
+			else:
+				brain = base.clone()
+		else:
+			# Initial population (no brains passed): create fresh random MLP
+			brain = MLP.new(required_input, desired_hidden, output_layer_neurons)
+
+		pilot.brain = brain
 		car.car_data.pilot = pilot
-		ai_tick.connect(pilot.notify_ai_tick)
+		# Tie pilot lifecycle to car to avoid leaks and ensure clean reuse
+		car.add_child(pilot)
+		var cb: Callable = Callable(pilot, "notify_ai_tick")
+		if !is_connected("ai_tick", cb):
+			ai_tick.connect(cb)
 
-		if randomize_car_skins and sprite_manager:
+		# Optional skin randomization
+		if randomize_car_skins:
 			var sprite := car.get_node_or_null("Sprite2D") as Sprite2D
-			if sprite:
+			if sprite and sprite_manager:
 				var seed := int(i)
 				var tex := sprite_manager.get_car_texture_for_pilot(pilot, seed)
-				if tex:
-					sprite.texture = tex
+				if tex: sprite.texture = tex
 
-		add_child(car)
+		# Add or re-add car under manager
+		if car.get_parent() != self:
+			add_child(car)
 		cars.append(car)
 
 	population_spawned.emit()
 	print("População criada: ", cars.size())
+
+# Ensure our NN config matches a provided brain (prevents unintended resizes)
+func _align_nn_config_to_brain(b: MLP) -> void:
+	if b == null:
+		return
+	input_layer_neurons = int(b.input_size)
+	if b.hidden_sizes.size() > 0:
+		hidden_layers = b.hidden_sizes
+	else:
+		hidden_layer_neurons = int(b.hidden_size)
+		hidden_layers = PackedInt32Array()  # keep legacy single-layer if needed
+	output_layer_neurons = int(b.output_size)
 
 func weighted_pick(cars: Array, total_fitness) -> Car:
 	var r = randf() * total_fitness
@@ -198,17 +240,17 @@ func next_generation():
 	generation_completed.emit()
 	generation += 1
 	print("Geração: ", generation)
-	var elites = int(population_size * elitism_percent)
+	var elites = max(1, int(population_size * elitism_percent))   # ensure at least one elite
 	sort_by_fitness()
 	best_cars = cars.slice(0, elites)
 
 	var total_fitness := 0.0
 	for car in best_cars:
-		total_fitness += car.fitness
+		total_fitness += max(0.0, car.fitness)
 
 	sort_by_fitness()
 
-	# NEW: if a JSON was queued, use those brains instead of evolving
+	# Use queued brains from JSON if present
 	var new_brains: Array = []
 	if !queued_brains_from_json.is_empty():
 		new_brains = queued_brains_from_json.duplicate(true)
@@ -216,7 +258,12 @@ func next_generation():
 	else:
 		var required_input := _required_input_size_from_cars()
 		for i in range(population_size):
-			var parent = weighted_pick(best_cars, total_fitness)
+			var parent: Car = null
+			if total_fitness > 0.0:
+				parent = weighted_pick(best_cars, total_fitness)
+			else:
+				# All fitness == 0: pick round-robin or random from elites to avoid degenerate selection
+				parent = best_cars[i % best_cars.size()]
 			var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
 			new_brains.append(brain)
 
@@ -224,6 +271,7 @@ func next_generation():
 
 	clear_scene()
 	spawn_population(new_brains)
+	print(self.get_signal_connection_list("ai_tick").size())
 
 # Faz mutação nos pesos do MLP (supports multi-layer)
 func mutate(brain: MLP, required_input_size: int):
@@ -490,7 +538,7 @@ func kill_stagnant_car(car):
 		if !c.crashed:
 			active_cars.append(c)
 	if cars.size() > active_cars.size():
-		if car.get_average_speed() < AgentManager.best_speed * 0.15 && grace_period < car.time_alive:
+		if car.get_average_speed() < AgentManager.best_speed * 0.15 and grace_period < car.time_alive:
 			car.die()
 
 func sort_by_fitness():
@@ -506,10 +554,49 @@ func get_best_car() -> Node:
 	return sorted[0]
 
 func clear_scene():
+	# Pool cars instead of freeing to avoid large allocation spikes next spawn.
+	if use_car_pooling:
+		for c in cars:
+			if c == null: continue
+			# Handle pilot gracefully
+			if c.car_data and c.car_data.pilot:
+				var p = c.car_data.pilot
+				# Disconnect ai_tick
+				var cb: Callable = Callable(p, "notify_ai_tick")
+				if is_connected("ai_tick", cb):
+					disconnect("ai_tick", cb)
+				# Archive or dump
+				if pilot_retention == "Archive":
+					_archive_pilot(p)
+				# Remove node
+				if p.get_parent():
+					p.queue_free()
+				c.car_data.pilot = null
+			# Deactivate and pool the car
+			c.prepare_for_pool()
+			_car_pool.append(c)
+		cars.clear()
+		timer = 0.0
+		return
+
+	# Fallback: free cars
 	for c in cars:
-		c.queue_free()
+		if c:
+			# Also disconnect/dump pilot when not pooling
+			if c.car_data and c.car_data.pilot:
+				var p = c.car_data.pilot
+				var cb2: Callable = Callable(p, "notify_ai_tick")
+				if is_connected("ai_tick", cb2):
+					disconnect("ai_tick", cb2)
+				if pilot_retention == "Archive":
+					_archive_pilot(p)
+				if p.get_parent():
+					p.queue_free()
+				c.car_data.pilot = null
+			c.queue_free()
 	cars.clear()
 	timer = 0.0
+
 
 func generation_to_string(options: Dictionary = {
 	"car_obj": {"print": false, "once": false},
@@ -589,4 +676,35 @@ func queue_generation_json(path: String, allow_resize: bool = true) -> bool:
 	# if data.has("ai_actions_per_second"):
 	# 	ai_actions_per_second = float(data["ai_actions_per_second"])
 
+	return true
+
+func _debug_dump_brain_sizes(_tag: String, arr: Array) -> void:
+	if arr.is_empty(): return
+	var b := arr[0] as MLP
+	print("[%s] NN sizes: in=", b.input_size, " hidden=", (b.hidden_sizes if b.hidden_sizes.size()>0 else PackedInt32Array([b.hidden_size])), " out=", b.output_size)
+
+func _archive_pilot(p: Pilot) -> void:
+	if p == null:
+		return
+	var rec := {
+		"first_name": p.pilot_first_name,
+		"last_name": p.pilot_last_name,
+		"number": p.pilot_number,
+	}
+	# Brain archival is optional; avoid heavy payload unless you add MLP.to_dict()
+	if p.brain and p.brain.has_method("to_dict"):
+		rec["brain"] = p.brain.to_dict()
+	_pilot_archive.append(rec)
+
+func save_pilot_archive(path: String = "") -> bool:
+	var out_path := path if path != "" else pilots_archive_path
+	var fa := FileAccess.open(out_path, FileAccess.WRITE)
+	if fa == null:
+		push_error("save_pilot_archive: could not open file: " + out_path)
+		return false
+	var txt := JSON.stringify(_pilot_archive, "  ")
+	fa.store_string(txt)
+	fa.flush()
+	fa.close()
+	return true
 	return true

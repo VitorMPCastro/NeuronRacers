@@ -34,7 +34,7 @@ weight = 0.3
 mutate_chance = 0.2
 input_layer_neurons = 6
 hidden_layers = PackedInt32Array(12, 12)
-fitness_expression = "(total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)) + ((total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)) / speed)"
+fitness_expression = "(total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint))"
 
 [node name="CarTelemetry" type="Node2D" parent="GameManager/AgentManager"]
 script = ExtResource("5_4qaac")

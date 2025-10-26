@@ -32,6 +32,9 @@ var car_state: Dictionary = {}
 const WRAP_THRESHOLD := 0.4  # fraction of track_length to consider wrap-around
 const EPS := 0.001
 
+@export var progress_updates_per_frame: int = 32
+var _pending_latest: Dictionary = {}   # car -> {pos: Vector2, t: float}
+
 func _enter_tree() -> void:
 	_singleton = self
 
@@ -41,6 +44,29 @@ func _ready() -> void:
 	_rebuild_cache()
 	if track and track.has_signal("track_built") and not track.track_built.is_connected(_on_track_built):
 		track.track_built.connect(_on_track_built)
+	set_physics_process(true)
+
+func _physics_process(_delta: float) -> void:
+	# Drain up to budget latest updates; skip crashed cars
+	var budget = max(1, progress_updates_per_frame)
+	if _pending_latest.is_empty():
+		return
+	# Copy keys to avoid mutating while iterating
+	var cars_to_process := _pending_latest.keys()
+	var processed := 0
+	for c in cars_to_process:
+		if processed >= budget:
+			break
+		var pack = _pending_latest.get(c, null)
+		_pending_latest.erase(c) # remove first to keep the queue bounded
+		if pack == null:
+			continue
+		if c == null or !is_instance_valid(c):
+			continue
+		if "crashed" in c and c.crashed:
+			continue
+		_process_progress_for(c, pack.pos, pack.t)
+		processed += 1
 
 func _exit_tree() -> void:
 	if _singleton == self:
@@ -106,9 +132,9 @@ func _rebuild_cache() -> void:
 
 		# Absolute progress (always use local)
 		if track_data.has_method("get_segment_length"):
-			prog.append(track_data.get_segment_length(0, idx))
+			prog.append(track_data.get_segment_length(0, idx)) # now O(1) via cumulative_length
 		elif track_data.has_method("get_point_progress"):
-			prog.append(track_data.get_point_progress(p_local)) # FIX: use local, not world
+			prog.append(track_data.get_point_progress(track_data.center_line.points[idx]))
 		else:
 			prog.append(float(idx))  # fallback monotonic
 
@@ -125,7 +151,8 @@ func register_car(car: Node) -> void:
 		"time_collected": 0.0,
 		"last_progress": 0.0,
 		"lap": 0,
-		"collected_ids": []
+		"collected_ids": [],
+		"seg_index": 0,               # NEW: last known center_line segment index (hint)
 	}
 
 func unregister_car(car: Node) -> void:
@@ -136,7 +163,9 @@ func update_car_progress(car: Node, new_pos: Vector2, t: float) -> void:
 		return
 	if not car_state.has(car):
 		return
+	_pending_latest[car] = { "pos": new_pos, "t": t }
 
+func _process_progress_for(car: Node, new_pos: Vector2, t: float) -> void:
 	var st = car_state[car]
 	var last := float(st["last_progress"])
 	var lap := int(st["lap"])
@@ -144,36 +173,32 @@ func update_car_progress(car: Node, new_pos: Vector2, t: float) -> void:
 	# Compute progress in Track local space
 	var query_pos := new_pos
 	if track_data and track_data.track:
-		query_pos = track_data.track.to_local(new_pos)  # FIX: world -> local
+		query_pos = track_data.track.to_local(new_pos)
 
-	var cur := 0.0
-	if track_data and track_data.has_method("get_point_progress"):
-		cur = clamp(track_data.get_point_progress(query_pos), 0.0, max(0.0, track_length))
-	else:
-		cur = last  # fallback: keep monotonic
+	# Walk along from last known segment index (very few steps)
+	var hint_seg := int(st.get("seg_index", 0))
+	if hint_seg == 0 and track_data and track_data.track_length > 0.0:
+		hint_seg = track_data.index_from_progress_linear(last)
+	var result := track_data.get_point_progress_walk(query_pos, hint_seg, 8)
+	var cur = clamp(float(result["progress"]), 0.0, max(0.0, track_length))
+	st["seg_index"] = int(result["index"])
 
-	# Wrap detection near start/end; increment lap to keep monotonic progress
+	# Wrap and monotonic progress across laps
 	if track_length > 0.0 and cur < last and (last - cur) > WRAP_THRESHOLD * track_length:
 		lap += 1
 		lap_changed.emit(car, lap)
+	var mprog = lap * track_length + cur
 
-	# Monotonic progress across laps
-	var mprog := lap * track_length + cur
-
-	# Collect all checkpoints passed since last update (handles fast movers)
+	# Checkpoint collection (unchanged)
 	var idx := int(st["index"])
 	var collected: Array = st["collected_ids"]
 	var count := _checkpoints_progress.size()
 	if count > 0:
 		while true:
 			var target_prog := lap * track_length + float(_checkpoints_progress[idx])
-			# If the checkpoint is behind due to wrap, adjust
 			if target_prog < mprog - (track_length * 0.5):
 				target_prog += track_length
-
-			# Require a small margin to truly "pass" the CP
 			var target_with_margin = target_prog + max(0.0, award_progress_margin)
-
 			if mprog + EPS >= target_with_margin:
 				collected.append(idx)
 				st["checkpoints"] = int(st["checkpoints"]) + 1

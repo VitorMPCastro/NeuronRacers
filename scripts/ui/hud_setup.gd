@@ -21,8 +21,17 @@ var _always_best_accum := 0.0
 var _show_current_sensors: bool = false
 
 # NEW: Best car selection via DataBroker
-@export var best_car_score_path: String = "car_data.fitness"  # DataBroker expression to rank cars
-@export var best_car_skip_crashed: bool = true                # ignore crashed cars for "best"
+@export var best_car_score_path: String = "car_data.fitness"
+@export var best_car_skip_crashed: bool = true
+
+# NEW: performance knobs for "Always Track Best"
+@export var best_recompute_on_ai_tick_only: bool = true
+@export var best_switch_hysteresis: float = 0.02        # require >=2% improvement to switch
+@export var best_switch_cooldown_sec: float = 0.75      # min time between switches
+@export var best_gen_settle_sec: float = 0.50           # delay after generation spawn
+
+var _best_cooldown_until: float = 0.0
+var _best_settle_until: float = 0.0
 
 # NEW: observed car label panel + overlay
 var _car_handle: CarHandlePanel = null
@@ -205,24 +214,21 @@ func _process(delta: float) -> void:
 	# Keep handle panel and line in sync
 	_update_car_handle_target()
 
-	# Optional fallback polling
-	if _always_track_best:
+	# Optional fallback polling (off by default)
+	if _always_track_best and !best_recompute_on_ai_tick_only:
 		_always_best_accum += delta
-		if _always_best_accum >= _always_best_poll_sec:
+		if _always_best_accum >= max(0.25, _always_best_poll_sec):
 			_always_best_accum = 0.0
-			var best := _compute_best_car()
-			if best and best != _observed_car:
-				_set_observed_car(best, true)
+			_maybe_switch_best()
 
 # NEW: called each AI tick; switch to current best if needed
 func _on_ai_tick() -> void:
 	if !_always_track_best:
 		return
-	var best := _compute_best_car()
-	if best and best != _observed_car:
-		_set_observed_car(best, true)
+	_maybe_switch_best()
 
 func _on_population_spawned_hud() -> void:
+	_best_settle_until = GameManager.global_time + best_gen_settle_sec
 	_rebuild_car_selectors()
 	_pick_initial_observed()
 	_refresh_neuron_graph()
@@ -1111,3 +1117,62 @@ func _center_handle_panel_at(center: Vector2) -> void:
 		return
 	var sz := _car_handle.size
 	_car_handle.global_position = center - sz * 0.5
+
+func _maybe_switch_best() -> void:
+	var now_t := GameManager.global_time if Engine.has_singleton("GameManager") else Time.get_ticks_msec() * 0.001
+	if now_t < _best_settle_until or now_t < _best_cooldown_until:
+		return
+
+	var am := _get_agent_manager()
+	if am == null or am.cars.is_empty():
+		return
+
+	var cur := _get_observed_car()
+	var cur_score := -INF
+	if cur and is_instance_valid(cur) and (!best_car_skip_crashed or !cur.crashed):
+		cur_score = _score_for_car(cur)
+
+	var top: Car = cur
+	var top_score := cur_score
+	for c in am.cars:
+		if c == null:
+			continue
+		if best_car_skip_crashed and c.crashed:
+			continue
+		if c == cur:
+			continue
+		var s := _score_for_car(c)
+		if top == null or s > top_score:
+			top = c
+			top_score = s
+
+	if top == null or top == cur:
+		return
+
+	var improve_ok := false
+	if cur_score <= 0.0:
+		improve_ok = top_score > 0.0
+	else:
+		improve_ok = ((top_score - cur_score) / abs(cur_score)) >= best_switch_hysteresis
+
+	if improve_ok:
+		_set_observed_car(top, true)
+		_best_cooldown_until = now_t + best_switch_cooldown_sec
+
+func _score_for_car(c: Car) -> float:
+	if c == null:
+		return -INF
+	# Fast path: direct fitness (no broker or parsing)
+	if best_car_score_path == "car_data.fitness":
+		return float(c.fitness)
+	var db := _get_data_broker()
+	if db == null:
+		return float(c.fitness)
+	var v = db.get_value(c, best_car_score_path)
+	match typeof(v):
+		TYPE_FLOAT, TYPE_INT: return float(v)
+		TYPE_BOOL: return (1.0 if v else 0.0)
+		TYPE_STRING:
+			var p := String(v)
+			return float(p) if p.is_valid_float() else 0.0
+		_: return 0.0

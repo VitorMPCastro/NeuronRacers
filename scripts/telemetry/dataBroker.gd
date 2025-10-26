@@ -1,106 +1,101 @@
 extends Node
 class_name DataBroker
 
+# Cache: "a.b.c()" -> [ {name:"a", call:false}, {name:"b", call:false}, {name:"c", call:true} ]
+var _path_cache: Dictionary = {}
+
 func _ready() -> void:
-	_connect_all()
-	# Auto-connect any fields added later
-	get_tree().node_added.connect(_on_node_added)
+	add_to_group("data_broker")
 
-func _on_node_added(n: Node) -> void:
-	# Attach to any node that exposes the 'request_value' signal
-	if n.has_signal("request_value"):
-		var sig: Signal = n.signal("request_value")
-		if not sig.is_connected(_on_field_request):
-			sig.connect(_on_field_request)
-
-func _connect_all() -> void:
-	for f in get_tree().get_nodes_in_group("telemetry_fetchers"):
-		if (f as Object).has_signal("request_value"):
-			var sig: Signal = f.signal("request_value")
-			if not sig.is_connected(_on_field_request):
-				sig.connect(_on_field_request)
-
-func _on_field_request(provider: Object, path: String, reply: Callable) -> void:
-	var value = get_value(provider, path)
-	reply.call(value)
-
-# Public API: resolve a value immediately (useful for MLP feature pulls)
 func get_value(provider: Object, path: String) -> Variant:
-	return _resolve(provider, path.strip_edges())
-
-# Dot-path resolver with zero-arg method support and common helpers (Vector length, arrays)
-func _resolve(obj: Variant, path: String) -> Variant:
-	if obj == null or path == "":
+	if provider == null or path.is_empty():
 		return null
-	var parts := path.split(".")
-	var current: Variant = obj
-	for raw_key in parts:
-		var key := raw_key.strip_edges()
-		if typeof(current) == TYPE_NIL:
+
+	# Fast paths for hot fields
+	if provider is Car:
+		match path:
+			"car_data.fitness": return (provider as Car).fitness
+			"car_data.time_alive": return (provider as Car).time_alive
+			# NEW: common velocity/speed aliases
+			"speed", "velocity.length", "velocity.length()":
+				return (provider as Car).velocity.length()
+			"velocity.x": return (provider as Car).velocity.x
+			"velocity.y": return (provider as Car).velocity.y
+			"car_data.pilot.get_full_name()":
+				var p = (provider as Car).car_data.pilot
+				return p.get_full_name() if p and p.has_method("get_full_name") else ""
+			_: pass
+
+	var tokens: Array = _compile_path(path)
+	var cur: Variant = provider
+	for t in tokens:
+		if cur == null:
 			return null
-
-		# Zero-arg method call notation: "method()"
-		var call_method := false
-		if key.ends_with("()"):
-			call_method = true
-			key = key.trim_suffix("()")
-
-		match typeof(current):
-			TYPE_OBJECT:
-				var o := current as Object
-				# Method priority if "()" used
-				if call_method and o.has_method(key):
-					current = o.call(key)
-					continue
-				# Property
-				if _has_property(o, key):
-					current = o.get(key)
-					continue
-				# Zero-arg method fallback
-				if o.has_method(key):
-					current = o.call(key)
-					continue
-				# Optional: child node by exact name
-				if o is Node:
-					var child := (o as Node).find_child(key, false, false)
-					if child != null:
-						current = child
-						continue
+		var name: String = t.name
+		if t.call:
+			if typeof(cur) == TYPE_OBJECT and (cur as Object).has_method(name):
+				cur = (cur as Object).call(name)
+			elif typeof(cur) == TYPE_VECTOR2:
+				# NEW: support Vector2 method calls
+				match name:
+					"length": cur = (cur as Vector2).length()
+					"length_squared": cur = (cur as Vector2).length_squared()
+					"normalized":
+						cur = (cur as Vector2).normalized()
+					_:
+						return null
+			else:
 				return null
-
-			TYPE_DICTIONARY:
-				current = (current as Dictionary).get(key, null)
-
-			TYPE_ARRAY:
-				# Numeric index access: e.g. "items.0"
-				if key.is_valid_int():
-					var idx := int(key)
-					var arr := current as Array
-					current = arr[idx] if (idx >= 0 and idx < arr.size()) else null
+		else:
+			# Property/field
+			if typeof(cur) == TYPE_OBJECT:
+				var obj := cur as Object
+				if obj.has_method(name):      # allow zero-arg getter by method name
+					cur = obj.call(name)
 				else:
-					return null
-
-			_:
-				# Common helpers on plain Variants:
-				# - Vector2/Vector3 length via ".length"
-				# - PackedVector2Array size via ".size"
-				if key == "length":
-					if typeof(current) == TYPE_VECTOR2:
-						return (current as Vector2).length()
-					if typeof(current) == TYPE_VECTOR3:
-						return (current as Vector3).length()
-					return null
-				if key == "size":
-					if typeof(current) == TYPE_PACKED_VECTOR2_ARRAY:
-						return (current as PackedVector2Array).size()
-					if typeof(current) == TYPE_STRING:
-						return (current as String).length()
-					return null
+					cur = obj.get(name) if name in obj else null
+			elif typeof(cur) == TYPE_DICTIONARY:
+				cur = (cur as Dictionary).get(name, null)
+			elif typeof(cur) == TYPE_VECTOR2:
+				# NEW: support Vector2 fields
+				match name:
+					"x": cur = (cur as Vector2).x
+					"y": cur = (cur as Vector2).y
+					_:
+						return null
+			else:
 				return null
-	return current
+	return cur
 
-func _has_property(obj: Object, prop_name: String) -> bool:
-	for prop in obj.get_property_list():
-		if prop.get("name", "") == prop_name:
-			return true
-	return false
+func get_many(provider: Object, paths: PackedStringArray) -> Array:
+	var out: Array = []
+	out.resize(paths.size())
+	for i in paths.size():
+		out[i] = get_value(provider, paths[i])
+	return out
+
+func _compile_path(path: String) -> Array:
+	var tokens = _path_cache.get(path)
+	if tokens != null:
+		return tokens
+	tokens = []
+	var parts := path.split(".")
+	for p in parts:
+		var call := false
+		var name := p
+		if p.ends_with("()"):
+			call = true
+			name = p.substr(0, p.length() - 2)
+		tokens.append({ "name": name, "call": call })
+	# Small struct-like access
+	for i in tokens.size():
+		tokens[i] = Token.new(tokens[i].name, tokens[i].call)
+	_path_cache[path] = tokens
+	return tokens
+
+class Token:
+	var name: String
+	var call: bool
+	func _init(n: String, c: bool) -> void:
+		name = n
+		call = c

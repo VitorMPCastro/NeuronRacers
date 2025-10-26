@@ -122,6 +122,14 @@ func lateral_friction_coeff() -> float:
 @onready var _car_telemetry: CarTelemetry = get_tree().get_first_node_in_group("car_telemetry") as CarTelemetry
 @onready var _rpm: RaceProgressionManager = get_tree().get_first_node_in_group("race_progression") as RaceProgressionManager
 
+@export var rpm_update_hz: float = 15.0                 # limit how often we query track progress
+@export var rpm_min_distance_px: float = 8.0            # also update when moved this much
+@export var physics_sleep_below_speed: float = 0.5      # skip friction work when nearly stopped
+
+var _rpm_accum := 0.0
+var _rpm_step := 1.0
+var _last_rpm_pos: Vector2 = Vector2.INF
+
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
@@ -135,35 +143,51 @@ func _ready() -> void:
 			print("Car damping tuned. friction_ui=", friction_ui, " (", friction_coeff(), "), drag_ui=", drag_ui, " (", drag_coeff(), "), expected_top_speed≈", v)
 	if _rpm:
 		_rpm.register_car(self)
+	_rpm_step = 1.0 / max(1.0, rpm_update_hz)
+	_last_rpm_pos = global_position
 
 func _physics_process(delta: float) -> void:
 	acceleration = Vector2.ZERO
+
+	# Input and steering
 	handle_input(delta)
 	calculate_steering(delta)
 
-	# Progress tracking via RPM instance
-	if _rpm:
-		_rpm.update_car_progress(self, global_position, GameManager.global_time)
-
-	last_position = global_position
-
+	# Integrate physics
 	_apply_friction_and_drag(delta)
 	velocity += acceleration * delta
 
 	# Optional: clamp speeds
-	if velocity.dot(transform.x) >= 0.0 and velocity.length() > max_speed_forward:
-		velocity = velocity.normalized() * max_speed_forward
-	elif velocity.dot(transform.x) < 0.0 and velocity.length() > max_speed_reverse:
-		velocity = velocity.normalized() * max_speed_reverse
+	var forward_dot := velocity.dot(transform.x)
+	var v2 := velocity.length_squared()
+	if forward_dot >= 0.0:
+		var f2 = max_speed_forward * max_speed_forward
+		if v2 > f2:
+			velocity = velocity.normalized() * max_speed_forward
+	else:
+		var r2 = max_speed_reverse * max_speed_reverse
+		if v2 > r2:
+			velocity = velocity.normalized() * max_speed_reverse
 
 	move_and_slide()
 
+	# Progress tracking (gate by time AND distance to reduce TrackData work)
+	if _rpm:
+		_rpm_accum += delta
+		var moved2 := (global_position - _last_rpm_pos).length_squared()
+		var dist2 := rpm_min_distance_px * rpm_min_distance_px
+		if _rpm_accum >= _rpm_step or moved2 >= dist2:
+			_rpm.update_car_progress(self, global_position, GameManager.global_time)
+			_rpm_accum = 0.0
+			_last_rpm_pos = global_position
+
+	# Stats
 	var dist = global_position.distance_to(origin_position)
 	if dist > max_distance:
 		max_distance = dist
-	
-	total_speed += velocity.length()
-	
+	total_speed += sqrt(v2)
+
+	# Death etc...
 	for i in range(get_slide_collision_count()):
 		var _collision = get_slide_collision(i)
 		die()
@@ -271,8 +295,8 @@ func handle_input(delta: float) -> void:
 		pass
 
 func _apply_friction_and_drag(_delta: float) -> void:
-	# If nearly stopped and no input, snap to rest
-	if acceleration == Vector2.ZERO and velocity.length() < 1.0:
+	# Skip when almost stopped and no input
+	if acceleration == Vector2.ZERO and velocity.length_squared() < physics_sleep_below_speed * physics_sleep_below_speed:
 		velocity = Vector2.ZERO
 		return
 
@@ -281,18 +305,16 @@ func _apply_friction_and_drag(_delta: float) -> void:
 	if speed <= 0.0:
 		return
 
-	var dir := v / speed
+	# Linear/quadratic drag without extra normalizations
 	var b := friction_coeff()
 	var a := drag_coeff()
-	# Isotropic damping (acts on current motion direction)
-	var linear = -dir * b * speed
-	var quadratic = -dir * a * speed * speed
+	var linear := -b * v                  # -b * v (no normalize)
+	var quadratic := -a * v * speed       # -a * v * |v|
 
-	# NEW: lateral grip (strongly damps sideways slip relative to car heading)
-	var side_speed := velocity.dot(transform.y)             # sideways component
+	# Lateral damping (side slip) using projection onto sideways axis
+	var side_speed := v.dot(transform.y)
 	var side_linear := -transform.y * lateral_friction_coeff() * side_speed
 
-	# Add to this frame's acceleration
 	acceleration += linear + quadratic + side_linear
 
 # 🔄 Steering: preserve speed, rotate velocity by a max angular step
@@ -404,3 +426,63 @@ func get_control_axes() -> Dictionary:
 		"brake": brake,
 		"steer": steer,
 	}
+
+func reset_for_spawn(spawn_pos: Vector2, spawn_rot: float = 0.0) -> void:
+	# Reset transforms and dynamics
+	global_position = spawn_pos
+	global_rotation = spawn_rot
+	_heading_angle = spawn_rot
+	velocity = Vector2.ZERO
+	acceleration = Vector2.ZERO
+	steer_direction = 0.0
+
+	# Reset control state
+	_ctrl_target_steer = 0.0
+	_ctrl_target_throttle = 0.0
+	_ctrl_steer = 0.0
+	_ctrl_throttle = 0.0
+
+	# Restore visuals
+	if has_node("Sprite2D"):
+		$Sprite2D.modulate.a = 1.0
+	# Clear highlight
+	_highlighted = false
+	z_as_relative = true
+	z_index = 0
+	if _highlight_aura:
+		_highlight_aura.visible = false
+
+	# Reset runtime flags and stats
+	crashed = false
+	total_speed = 0.0
+	max_distance = 0.0
+	origin_position = spawn_pos
+	last_position = spawn_pos
+	car_data.collected_checkpoints = []
+	car_data.timestamp_death = -1.0
+	fitness = 0.0
+	time_alive = 0.0
+
+	# Re-enable processing
+	set_physics_process(true)
+	set_process(true)
+	visible = true
+
+	# Reset progression cadence
+	_rpm_accum = 0.0
+	_rpm_step = 1.0 / max(1.0, rpm_update_hz)
+	_last_rpm_pos = global_position
+
+	# Re-run spawn logic (timestamp, RP registration, etc.)
+	car_spawn.emit()
+
+func prepare_for_pool() -> void:
+	# Make the car inert and hidden before pooling
+	set_physics_process(false)
+	set_process(false)
+	velocity = Vector2.ZERO
+	acceleration = Vector2.ZERO
+	visible = false
+	# Keep alpha restored so next spawn doesn't look "dead"
+	if has_node("Sprite2D"):
+		$Sprite2D.modulate.a = 1.0

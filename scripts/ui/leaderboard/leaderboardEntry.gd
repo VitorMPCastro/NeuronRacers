@@ -16,10 +16,9 @@ func remove_field(field: LeaderboardField) -> void:
 		fields.erase(field)
 		remove_child(field)
 
-# Query only fields that have a non-empty query_path.
-# Fields with empty query_path (e.g., "#") are set separately (see set_rank).
-func update_entry(telemetry: CarTelemetry) -> void:
-	if car == null or telemetry == null or fields.is_empty():
+# Update using DataBroker.get_many (no TelemetryData)
+func update_entry(broker: DataBroker) -> void:
+	if car == null or broker == null or fields.is_empty():
 		return
 
 	var paths := PackedStringArray()
@@ -35,16 +34,12 @@ func update_entry(telemetry: CarTelemetry) -> void:
 	if paths.is_empty():
 		return
 
-	var td: TelemetryData = telemetry.get_values_for_car(car, paths)
-	if td == null or td.rows.is_empty():
-		return
+	var values: Array = broker.get_many(car, paths)
 
-	var row: Array = td.rows[0]  # [car_name, v1, v2, ...]
 	for i in range(fields.size()):
 		if field_to_path_idx.has(i):
 			var path_idx: int = int(field_to_path_idx[i])
-			var value_idx := 1 + path_idx
-			var value = row[value_idx] if value_idx < row.size() else null
+			var value = values[path_idx] if path_idx < values.size() else null
 			fields[i].render(value)
 		# else: leave fields like "#" to be set via set_rank()
 
