@@ -25,21 +25,21 @@ metadata/_custom_type_script = "uid://dqguyqcyqkap"
 [sub_resource type="Resource" id="Resource_4clw4"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 22.0
+angle_deg = 15.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_ctevm"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 44.0
+angle_deg = 30.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_uraa1"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = 66.0
+angle_deg = 60.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
@@ -88,21 +88,21 @@ metadata/_custom_type_script = "uid://dqguyqcyqkap"
 [sub_resource type="Resource" id="Resource_l8qg8"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -66.0
+angle_deg = -60.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_f45sw"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -44.0
+angle_deg = -30.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
 [sub_resource type="Resource" id="Resource_cp117"]
 script = ExtResource("4_3mrxu")
 enabled = true
-angle_deg = -22.0
+angle_deg = -15.0
 max_length_px = 1e+06
 metadata/_custom_type_script = "uid://dqguyqcyqkap"
 
