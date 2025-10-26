@@ -111,6 +111,7 @@ collision_layer = 2
 script = ExtResource("1_qt2eu")
 friction_ui = 3.6
 drag_ui = 0.7
+max_speed_forward = 3300.0
 traction_curve = SubResource("Curve_qt2eu")
 use_auto_top_speed = false
 target_top_speed = 3300.0

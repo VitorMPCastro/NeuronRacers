@@ -16,26 +16,10 @@ class_name DataFieldDef
 static func make_default_car_fields() -> Array[DataFieldDef]:
 	var arr: Array[DataFieldDef] = []
 
-	var f_rank := DataFieldDef.new()
-	f_rank.title = "#"
-	f_rank.query_path = "#rank"            # special
-	f_rank.show_title = false
-	f_rank.align_right = true
-	f_rank.font_size = 18
-	arr.append(f_rank)
-
-	var f_name := DataFieldDef.new()
-	f_name.title = "Pilot"
-	f_name.query_path = "car_data.pilot.get_full_name()"
-	f_name.show_title = false
-	f_name.font_size = 18
-	f_name.weight = 2.0
-	arr.append(f_name)
-
 	var f_speed := DataFieldDef.new()
 	f_speed.title = "Speed"
-	f_speed.query_path = "speed"           # DataBroker fast path
-	f_speed.suffix = " px/s"
+	f_speed.query_path = "speed_kmh"           # DataBroker fast path
+	f_speed.suffix = " km/h"
 	f_speed.decimals = 0
 	arr.append(f_speed)
 
@@ -58,25 +42,34 @@ static func make_default_car_fields() -> Array[DataFieldDef]:
 	f_checks.decimals = 0
 	arr.append(f_checks)
 
-	var f_sec1 := DataFieldDef.new()
-	f_sec1.title = "Sector 1"
-	f_sec1.query_path = "get_sector_time(1)"
-	f_sec1.suffix = " s"
-	f_sec1.decimals = 2
-	arr.append(f_sec1)
+	var f_lap := DataFieldDef.new()
+	f_lap.title = "Lap"
+	f_lap.query_path = "lap"
+	f_lap.decimals = 0
+	arr.append(f_lap)
 
-	var f_sec2 := DataFieldDef.new()
-	f_sec2.title = "Sector 2"
-	f_sec2.query_path = "get_sector_time(2)"
-	f_sec2.suffix = " s"
-	f_sec2.decimals = 2
-	arr.append(f_sec2)
+	var f_lap_time := DataFieldDef.new()
+	f_lap_time.title = "Lap Time"
+	f_lap_time.query_path = "lap_time"
+	f_lap_time.decimals = 2
+	arr.append(f_lap_time)
 
-	var f_sec3 := DataFieldDef.new()
-	f_sec3.title = "Sector 3"
-	f_sec3.query_path = "get_sector_time(3)"
-	f_sec3.suffix = " s"
-	f_sec3.decimals = 2
-	arr.append(f_sec3)
+	# Current lap sector times
+	for i in range(1, 4):
+		var f := DataFieldDef.new()
+		f.title = "Sector %d" % i
+		f.query_path = "get_sector_time(%d)" % i
+		f.suffix = " s"
+		f.decimals = 2
+		arr.append(f)
+
+	# Previous lap sector times
+	for i in range(1, 4):
+		var fp := DataFieldDef.new()
+		fp.title = "Prev S%d" % i
+		fp.query_path = "get_sector_time_prev(%d)" % i
+		fp.suffix = " s"
+		fp.decimals = 2
+		arr.append(fp)
 
 	return arr

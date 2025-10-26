@@ -18,16 +18,22 @@ func get_value(provider: Object, path: String) -> Variant:
 	if provider == null or path.is_empty():
 		return null
 
-	# Fast paths (no reflection)
+	# Fast paths
 	if provider is Car:
 		match path:
+			"lap": return RaceProgressionManager.get_lap_static(provider)
+			"lap_time": return RaceProgressionManager.get_lap_time_static(provider)
+			"speed_kmh": return (provider as Car).velocity.length() / 10.0
+			"get_sector_time(1)": return RaceProgressionManager.get_sector_time_static(provider, 1)
+			"get_sector_time(2)": return RaceProgressionManager.get_sector_time_static(provider, 2)
+			"get_sector_time(3)": return RaceProgressionManager.get_sector_time_static(provider, 3)
+			"get_sector_time_prev(1)": return RaceProgressionManager.get_sector_time_prev_static(provider, 1)
+			"get_sector_time_prev(2)": return RaceProgressionManager.get_sector_time_prev_static(provider, 2)
+			"get_sector_time_prev(3)": return RaceProgressionManager.get_sector_time_prev_static(provider, 3)
 			"car_data.fitness": return (provider as Car).fitness
 			"car_data.time_alive": return (provider as Car).time_alive
 			"total_checkpoints": return RaceProgressionManager.get_checkpoint_count_static(provider)
 			"distance_to_next_checkpoint": return RaceProgressionManager.get_distance_to_next_checkpoint_static(provider)
-			"get_sector_time(1)": return (provider as Car).get_sector_time(1)
-			"get_sector_time(2)": return (provider as Car).get_sector_time(2)
-			"get_sector_time(3)": return (provider as Car).get_sector_time(3)
 			"speed", "velocity.length", "velocity.length()": return (provider as Car).velocity.length()
 			"velocity.x": return (provider as Car).velocity.x
 			"velocity.y": return (provider as Car).velocity.y

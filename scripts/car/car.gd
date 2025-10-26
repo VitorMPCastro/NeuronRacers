@@ -548,6 +548,11 @@ func prepare_for_pool() -> void:
 	velocity = Vector2.ZERO
 	acceleration = Vector2.ZERO
 	visible = false
+	# Reset fitness/telemetry so pooled cars don't carry over UI values
+	fitness = 0.0
+	time_alive = 0.0
+	total_speed = 0.0
+	car_data.collected_checkpoints = []
 	# Keep alpha restored so next spawn doesn't look "dead"
 	if has_node("Sprite2D"):
 		$Sprite2D.modulate.a = 1.0

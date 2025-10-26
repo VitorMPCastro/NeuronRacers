@@ -25,6 +25,8 @@ class_name AgentManager
 		_ai_aps = max(0.0, value)
 		_update_ai_timer()
 @export var randomize_car_skins: bool = true
+@export var generation_grace_sec: float = 0.5
+
 
 # NEW: control how we decide NN input size and alignment
 @export var detect_input_size_from_scene: bool = false  # if true, probe car_scene; otherwise use configured input_layer_neurons
@@ -45,7 +47,11 @@ var _pilot_archive: Array = []
 
 @export_category("Fitness")
 @export var use_custom_fitness: bool = true
-@export var fitness_expression: String = "total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)":
+@export var fitness_expression: String = "(total_checkpoints*1200
+ + 600/max(1, distance_to_next_checkpoint)
+ + 5000*(1/max(0.5, ps1) + 1/max(0.5, ps2) + 1/max(0.5, ps3))
+ + 1000*(1/max(0.5, s1) + 1/max(0.5, s2) + 1/max(0.5, s3))
+ + 8000*(1/max(5, last_lap_time)))":
 	set(value):
 		fitness_expression = value
 		_rebuild_fitness_expression()
@@ -67,6 +73,7 @@ var cars = []
 var best_cars = []
 static var best_speed: int = -1
 var generation = 0
+var _gen_started_at: float = 0.0
 var timer = 0.0
 @onready var gm = self.find_parent("GameManager") as GameManager
 @onready var trackOrigin = gm.find_child("TrackOrigin") as Node2D
@@ -111,7 +118,8 @@ func _process(delta):
 		return
 	timer += delta
 	get_best_speed()
-	if timer >= generation_time || is_all_cars_dead():
+	var in_grace := (GameManager.global_time - _gen_started_at) < generation_grace_sec
+	if !in_grace and (timer >= generation_time or is_all_cars_dead()):
 		next_generation()
 
 func _on_ai_timer_timeout() -> void:
@@ -226,6 +234,7 @@ func spawn_population(brains: Array = []):
 			car = car_scene.instantiate()
 
 		car.reset_for_spawn(base_spawn, 0.0)
+		car.fitness = 0.0  # ensure fresh fitness when reusing pooled cars
 
 		# New pilot and brain
 		var pilot := PilotFactory.create_random_pilot()
@@ -276,6 +285,7 @@ func spawn_population(brains: Array = []):
 
 	population_spawned.emit()
 	print("População criada: ", cars.size())
+	_gen_started_at = GameManager.global_time
 
 # Ensure our NN config matches a provided brain (prevents unintended resizes)
 func _align_nn_config_to_brain(b: MLP) -> void:
@@ -302,7 +312,7 @@ func next_generation():
 	generation_completed.emit()
 	generation += 1
 	print("Geração: ", generation)
-	var elites = max(1, int(population_size * elitism_percent))   # ensure at least one elite
+	var elites = max(1, int(population_size * elitism_percent))
 	sort_by_fitness()
 	best_cars = cars.slice(0, elites)
 
@@ -312,7 +322,6 @@ func next_generation():
 
 	sort_by_fitness()
 
-	# Use queued brains from JSON if present
 	var new_brains: Array = []
 	if !queued_brains_from_json.is_empty():
 		new_brains = queued_brains_from_json.duplicate(true)
@@ -324,15 +333,18 @@ func next_generation():
 			if total_fitness > 0.0:
 				parent = weighted_pick(best_cars, total_fitness)
 			else:
-				# All fitness == 0: pick round-robin or random from elites to avoid degenerate selection
 				parent = best_cars[i % best_cars.size()]
-			var brain = mutate(parent.car_data.pilot.brain, required_input)  # supports multi-layer
+			var brain = mutate(parent.car_data.pilot.brain, required_input)
 			new_brains.append(brain)
 
 	print(generation_to_string() if print_debug_generation else "") 
 
 	clear_scene()
 	spawn_population(new_brains)
+
+	# IMPORTANT: reset generation timer so we don't immediately trigger next_generation again
+	timer = 0.0
+
 	print(self.get_signal_connection_list("ai_tick").size())
 
 # Faz mutação nos pesos do MLP (supports multi-layer)
@@ -634,30 +646,25 @@ func clear_scene():
 				if p.get_parent():
 					p.queue_free()
 				c.car_data.pilot = null
-			# Deactivate and pool the car
-			c.prepare_for_pool()
+			# NEW: unregister from RPM and reset before pooling
+			RaceProgressionManager.unregister_car_static(c)
+			if c.has_method("prepare_for_pool"):
+				c.prepare_for_pool()
 			_car_pool.append(c)
 		cars.clear()
-		timer = 0.0
-		return
-
-	# Fallback: free cars
-	for c in cars:
-		if c:
-			# Also disconnect/dump pilot when not pooling
+	else:
+		for c in cars:
+			if c == null: continue
+			# Disconnect pilot
 			if c.car_data and c.car_data.pilot:
 				var p = c.car_data.pilot
 				var cb2: Callable = Callable(p, "notify_ai_tick")
 				if is_connected("ai_tick", cb2):
 					disconnect("ai_tick", cb2)
-				if pilot_retention == "Archive":
-					_archive_pilot(p)
-				if p.get_parent():
-					p.queue_free()
-				c.car_data.pilot = null
+			# NEW: unregister from RPM before freeing
+			RaceProgressionManager.unregister_car_static(c)
 			c.queue_free()
-	cars.clear()
-	timer = 0.0
+		cars.clear()
 
 
 func generation_to_string(options: Dictionary = {
@@ -686,6 +693,9 @@ func generation_to_string(options: Dictionary = {
 	return generation_string
 
 func is_all_cars_dead():
+	# Only true if we actually have cars and all of them are dead
+	if cars.is_empty():
+		return false
 	for car in cars:
 		if !car.crashed:
 			return false
