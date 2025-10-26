@@ -50,7 +50,7 @@ func _draw() -> void:
 	if cps.is_empty():
 		return
 
-	var prog := _rpm.get_checkpoints_progress()
+	var prog = _rpm.get_checkpoints_progress()
 	var n := cps.size()
 
 	# Lines in visiting order

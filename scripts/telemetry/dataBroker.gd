@@ -1,7 +1,6 @@
 extends Node
 class_name DataBroker
 
-# Cache: path -> Array[Token]
 var _path_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -10,7 +9,7 @@ func _ready() -> void:
 func get_many(provider: Object, paths: PackedStringArray) -> Array:
 	var out: Array = []
 	out.resize(paths.size())
-	for i in paths.size():
+	for i in range(paths.size()):
 		out[i] = get_value(provider, paths[i])
 	return out
 
@@ -18,13 +17,16 @@ func get_value(provider: Object, path: String) -> Variant:
 	if provider == null or path.is_empty():
 		return null
 
-	# Fast paths for hot fields
+	# Fast paths
 	if provider is Car:
 		match path:
 			"car_data.fitness": return (provider as Car).fitness
 			"car_data.time_alive": return (provider as Car).time_alive
-			"speed", "velocity.length", "velocity.length()":
-				return (provider as Car).velocity.length()
+			"total_checkpoints": return RaceProgressionManager.get_checkpoint_count_static(provider)
+			"get_sector_time(1)": return (provider as Car).get_sector_time(1)
+			"get_sector_time(2)": return (provider as Car).get_sector_time(2)
+			"get_sector_time(3)": return (provider as Car).get_sector_time(3)
+			"speed", "velocity.length", "velocity.length()": return (provider as Car).velocity.length()
 			"velocity.x": return (provider as Car).velocity.x
 			"velocity.y": return (provider as Car).velocity.y
 			"car_data.pilot.get_full_name()":
@@ -37,13 +39,12 @@ func get_value(provider: Object, path: String) -> Variant:
 	for t in tokens:
 		if cur == null:
 			return null
-		var token_name: String = (t as Token).token_name
-		var is_call: bool = (t as Token).is_call
-		if is_call:
-			if typeof(cur) == TYPE_OBJECT and (cur as Object).has_method(token_name):
-				cur = (cur as Object).call(token_name)
+		var tok := t as Token
+		if tok.is_call:
+			if typeof(cur) == TYPE_OBJECT and (cur as Object).has_method(tok.token_name):
+				cur = (cur as Object).callv(tok.token_name, tok.args) if tok.args.size() > 0 else (cur as Object).call(tok.token_name)
 			elif typeof(cur) == TYPE_VECTOR2:
-				match token_name:
+				match tok.token_name:
 					"length": cur = (cur as Vector2).length()
 					"length_squared": cur = (cur as Vector2).length_squared()
 					"normalized": cur = (cur as Vector2).normalized()
@@ -53,14 +54,14 @@ func get_value(provider: Object, path: String) -> Variant:
 		else:
 			if typeof(cur) == TYPE_OBJECT:
 				var obj := cur as Object
-				if obj.has_method(token_name):      # allow zero-arg getter by method name
-					cur = obj.call(token_name)
+				if obj.has_method(tok.token_name):
+					cur = obj.call(tok.token_name)
 				else:
-					cur = obj.get(token_name) if token_name in obj else null
+					cur = obj.get(tok.token_name)
 			elif typeof(cur) == TYPE_DICTIONARY:
-				cur = (cur as Dictionary).get(token_name, null)
+				cur = (cur as Dictionary).get(tok.token_name, null)
 			elif typeof(cur) == TYPE_VECTOR2:
-				match token_name:
+				match tok.token_name:
 					"x": cur = (cur as Vector2).x
 					"y": cur = (cur as Vector2).y
 					_: return null
@@ -74,15 +75,41 @@ func _compile_path(path: String) -> Array:
 		return cached
 	var tokens: Array = []
 	for part in path.split("."):
-		var is_call := part.ends_with("()")
-		var nm := part.substr(0, part.length() - 2) if is_call else part
+		var open_idx := part.find("(")
+		var is_call := open_idx != -1 and part.ends_with(")")
+		var tkn_name := part
+		var args: Array = []
+		if is_call:
+			tkn_name = part.substr(0, open_idx)
+			var inner := part.substr(open_idx + 1, part.length() - open_idx - 2)
+			args = _parse_args(inner)
 		var tok := Token.new()
-		tok.token_name = nm
+		tok.token_name = tkn_name
 		tok.is_call = is_call
+		tok.args = args
 		tokens.append(tok)
 	_path_cache[path] = tokens
 	return tokens
 
+func _parse_args(s: String) -> Array:
+	var args: Array = []
+	if s.strip_edges() == "":
+		return args
+	for raw in s.split(","):
+		var a := raw.strip_edges()
+		if a == "true" or a == "false":
+			args.append(a == "true")
+		elif a.is_valid_int():
+			args.append(int(a))
+		elif a.is_valid_float():
+			args.append(float(a))
+		else:
+			if (a.begins_with("'") and a.ends_with("'")) or (a.begins_with("\"") and a.ends_with("\"")):
+				a = a.substr(1, a.length() - 2)
+			args.append(a)
+	return args
+
 class Token:
 	var token_name: String = ""
 	var is_call: bool = false
+	var args: Array = []

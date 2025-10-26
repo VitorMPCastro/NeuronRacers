@@ -256,11 +256,15 @@ func draw_line_track_section(line: Line2D, start_index: int, end_index: int, sec
 		highlight_line.add_point(line.points[i])
 
 	highlight_line.default_color = color
-	highlight_line.section_name = section_name
 	highlight_line.width = 4.0
 	highlight_line.visible = true
 	highlight_line.add_to_group("track_sector_lines")   # tag for cleanup
-	
+
+	# REPLACED: Line2D has no 'section_name' property — use name + metadata
+	# highlight_line.section_name = section_name
+	highlight_line.name = section_name if section_name != "" else "Sector_Line"
+	highlight_line.set_meta("section_name", section_name)
+
 	var parent = line.find_parent("LineParent")
 	parent.add_child(highlight_line)
 

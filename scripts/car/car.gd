@@ -131,6 +131,11 @@ var _rpm_accum := 0.0
 var _rpm_step := 1.0
 var _last_rpm_pos: Vector2 = Vector2.INF
 
+# Progression tracking
+var _prev_progress_pos: Vector2 = Vector2.ZERO
+@export var rpm_feed_enabled: bool = false  # keep off; RPM polls cars itself
+var _registered_with_rpm: bool = false
+
 func _ready() -> void:
 	car_spawn.connect(_on_spawn)
 	car_death.connect(_on_death)
@@ -146,6 +151,14 @@ func _ready() -> void:
 		_rpm.register_car(self)
 	_rpm_step = 1.0 / max(1.0, rpm_update_hz)
 	_last_rpm_pos = global_position
+	_register_with_rpm()
+	_prev_progress_pos = global_position
+
+func _exit_tree() -> void:
+	if _registered_with_rpm:
+		RaceProgressionManager.unregister_car_static(self)
+		_registered_with_rpm = false
+	# Clean up logic (if any)
 
 func _physics_process(delta: float) -> void:
 	acceleration = Vector2.ZERO
@@ -171,6 +184,10 @@ func _physics_process(delta: float) -> void:
 			velocity = velocity.normalized() * max_speed_reverse
 
 	move_and_slide()
+
+	# Feed latest position to RaceProgressionManager (budgeted internally)
+	if _registered_with_rpm:
+		RaceProgressionManager.update_car_progress_static(self, global_position, GameManager.global_time)
 
 	# Progress tracking (gate by time AND distance to reduce TrackData work)
 	if _rpm:
@@ -403,7 +420,7 @@ func set_highlighted(on: bool) -> void:
 		if _highlight_aura:
 			_highlight_aura.visible = false
 
-func die():
+func die() -> void:
 	# Idempotent: only run once
 	if crashed:
 		return
@@ -412,6 +429,22 @@ func die():
 	set_process(false)
 	velocity = Vector2.ZERO
 	car_death.emit()
+	# Optional: keep car registered so final sector/checkpoint events can still be read.
+	# If you want to drop it entirely, call _unregister_from_rpm() here instead.
+
+func _register_with_rpm() -> void:
+	if !_registered_with_rpm:
+		RaceProgressionManager.register_car_static(self)
+		_registered_with_rpm = true
+		if RaceProgressionManager and RaceProgressionManager._singleton and RaceProgressionManager._singleton.debug_sector_timing:
+			print("[Car] registered in RPM: ", self)
+
+func _unregister_from_rpm() -> void:
+	if _registered_with_rpm:
+		RaceProgressionManager.unregister_car_static(self)
+		_registered_with_rpm = false
+		if RaceProgressionManager and RaceProgressionManager._singleton and RaceProgressionManager._singleton.debug_sector_timing:
+			print("[Car] unregistered from RPM: ", self)
 
 # Compute expected terminal speed for current engine_power, friction, drag
 func _expected_terminal_speed(F: float = engine_power, b: float = -1.0, a: float = -1.0) -> float:
@@ -518,3 +551,16 @@ func prepare_for_pool() -> void:
 	# Keep alpha restored so next spawn doesn't look "dead"
 	if has_node("Sprite2D"):
 		$Sprite2D.modulate.a = 1.0
+	_unregister_from_rpm()
+
+func total_checkpoints() -> int:
+	return RaceProgressionManager.get_checkpoint_count_static(self)
+
+func get_last_checkpoint_time(cp_index: int) -> float:
+	return RaceProgressionManager.get_last_checkpoint_time_static(self, cp_index)
+
+func get_time_between_indices(idx_a: int, idx_b: int) -> float:
+	return RaceProgressionManager.get_time_between_indices_static(self, idx_a, idx_b)
+
+func get_sector_time(sector_index_1based: int) -> float:
+	return RaceProgressionManager.get_sector_time_static(self, sector_index_1based)
