@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://dt2mke4gq8sy3"]
+
+[ext_resource type="Script" uid="uid://dcs3exfx8736n" path="res://scripts/ui/nodegraph/node_editor_toggle.gd" id="1"]
+
+[node name="NodeEditorToggle" type="Button"]
+toggle_mode = true
+text = "Node Editor"
+script = ExtResource("1")

@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://npmcexxqvm6k" path="res://scripts/car/car.gd" id="1_qt2eu"]
 [ext_resource type="Texture2D" uid="uid://di2bveb00kr2p" path="res://assets/cars/pitstop_car_11.png" id="2_50v30"]
-[ext_resource type="Script" uid="uid://jr1ue3njam48" path="res://scripts/car/sensor/carSensor.gd" id="3_jtldb"]
+[ext_resource type="Script" uid="uid://jr1ue3njam48" path="res://scripts/car/sensor/carSensors.gd" id="3_jtldb"]
 [ext_resource type="Script" uid="uid://dqguyqcyqkap" path="res://scripts/car/sensor/sensorRay.gd" id="4_3mrxu"]
 
 [sub_resource type="Curve" id="Curve_qt2eu"]

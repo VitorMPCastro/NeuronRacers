@@ -52,7 +52,9 @@ var _ctrl_steer := 0.0
 var _ctrl_throttle := 0.0
 var car_data = CarData.new()
 var control_module
-var total_speed = 0.0
+var avg_speed_px: float = 0.0
+@export var avg_speed_smoothing: float = 0.15  # 0..1, higher = more responsive
+var total_speed: float = 0.0  # keep if you already had it
 var time_alive: float:
 	get():
 		return self.car_data.time_alive
@@ -431,6 +433,9 @@ func die() -> void:
 	car_death.emit()
 	# Optional: keep car registered so final sector/checkpoint events can still be read.
 	# If you want to drop it entirely, call _unregister_from_rpm() here instead.
+	var sensors := get_node_or_null("CarSensors")
+	if sensors:
+		sensors.set_physics_process(false)
 
 func _register_with_rpm() -> void:
 	if !_registered_with_rpm:

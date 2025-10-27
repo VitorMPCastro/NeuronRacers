@@ -493,6 +493,12 @@ func _build_bottom_tabs() -> void:
 
 	frame.add_to_bottom(tabs)
 
+	# Add NodeEditorToggle to bottom bar so users can open the editor from HUD
+	var toggle_scene = preload("res://scenes/ui/node_editor_toggle.tscn")
+	var toggle_inst := toggle_scene.instantiate() as Control
+	# place it next to bottom tabs
+	frame.add_to_bottom(toggle_inst)
+
 func _make_bottom_inputs_panel() -> Control:
 	var panel := CollapsiblePanel.new()
 	panel.title = "Inputs"

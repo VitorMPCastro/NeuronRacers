@@ -81,7 +81,7 @@ var timer = 0.0
 @onready var telemetry: CarTelemetry = self.find_child("CarTelemetry") as CarTelemetry
 @onready var sprite_manager: SpriteManager = gm.find_child("SpriteManager") as SpriteManager
 
-@export var ai_phases: int = 4            # split AI decisions over P phases
+@export var ai_phases: int = 4   # spread sensor/ai work across this many physics frames
 var _ai_phase_idx: int = 0
 
 # Optional: keep decisions/sec bounded as population grows
@@ -93,10 +93,24 @@ var _ai_timer: Timer
 # NEW: queued brains to use on next_generation
 var queued_brains_from_json: Array[MLP] = []
 
+var custom_fitness_equation: String = ""
 var _fitness_expr: Expression = Expression.new()
 var _fitness_inputs: PackedStringArray = PackedStringArray()
 var _fitness_expr_ok: bool = false
 const _FITNESS_FALLBACK := "total_checkpoints*1000 + 1000/max(1, distance_to_next_checkpoint)"
+
+
+var _best_speed_last_update_t: float = 0.0
+@export var best_speed_refresh_sec: float = 0.5
+
+func set_custom_fitness_equation(eq: String) -> void:
+	custom_fitness_equation = String(eq)
+	_fitness_expr = Expression.new()
+	var parse_err := _fitness_expr.parse(custom_fitness_equation)
+	_fitness_expr_ok = (parse_err == OK)
+	use_custom_fitness = _fitness_expr_ok
+	if !_fitness_expr_ok:
+		push_warning("Fitness equation parse error, falling back. Eq: " + custom_fitness_equation)
 
 
 func _ready():
@@ -117,12 +131,40 @@ func _process(delta):
 	if !is_training:
 		return
 	timer += delta
-	get_best_speed()
+
+	# Recompute best speed at a low cadence
+	if GameManager.global_time - _best_speed_last_update_t >= best_speed_refresh_sec:
+		_recompute_best_speed()
+		_best_speed_last_update_t = GameManager.global_time
+
 	var in_grace := (GameManager.global_time - _gen_started_at) < generation_grace_sec
 	if !in_grace and (timer >= generation_time or is_all_cars_dead()):
 		next_generation()
 
+func _recompute_best_speed() -> void:
+	var best := 0.0
+	for car in cars:
+		if car and !car.crashed:
+			# Prefer a cached avg if your Car implements it; fallback otherwise
+			var s = (car.get_average_speed_cached() if car.has_method("get_average_speed_cached") else car.get_average_speed())
+			if s > best:
+				best = s
+	AgentManager.best_speed = int(best)
+
+var _last_ai_timeout_frame: int = -1
+@export var ai_start_grace_sec: float = 0.05
+
 func _on_ai_timer_timeout() -> void:
+	# Drop repeated timer firings within the same physics frame
+	var frame_id := Engine.get_physics_frames()
+	if frame_id == _last_ai_timeout_frame:
+		return
+	_last_ai_timeout_frame = frame_id
+
+	# Give the scene a short grace after spawning a generation
+	if (GameManager.global_time - _gen_started_at) < ai_start_grace_sec:
+		return
+
 	# Advance phase first so cars see the current phase this tick
 	if ai_phases > 1:
 		_ai_phase_idx = (_ai_phase_idx + 1) % ai_phases
@@ -156,17 +198,14 @@ func _update_car_fitness_budgeted() -> void:
 
 # Kill logic with rate limit and sane condition (no mass-kill because someone crashed)
 func _try_kill_stagnant(car: Car) -> void:
-	if _kills_left <= 0:
+	if _kills_left <= 0 or car == null or car.crashed:
 		return
-	if car == null or car.crashed:
-		return
-
 	var grace_period := 3.0
 	if car.time_alive < grace_period:
 		return
-
-	var best = get_best_speed() # cached static best_speed inside this function
-	var threshold := 0.15 * float(best) if best > 0 else 0.0
+		
+	var best := float(AgentManager.best_speed)
+	var threshold := 0.15 * best if best > 0 else 0.0
 	if car.get_average_speed() < threshold:
 		car.die()
 		_kills_left -= 1
@@ -282,6 +321,13 @@ func spawn_population(brains: Array = []):
 		if car.get_parent() != self:
 			add_child(car)
 		cars.append(car)
+
+		var sensors := car.get_node_or_null("CarSensors")
+		if sensors and sensors.has_method("set_phase"):
+			sensors.set_phase(i % max(1, ai_phases), max(1, ai_phases))
+		# Optionally slow most sensors a bit to save CPU at large populations
+		if sensors and sensors.has_method("set_lod_factor"):
+			sensors.set_lod_factor(1.1)  # ~10% slower sampling globally
 
 	population_spawned.emit()
 	print("População criada: ", cars.size())
@@ -590,13 +636,8 @@ func _eval_fitness(car: Car, rpm: RaceProgressionManager) -> float:
 	return float(total_cp) * 1000.0 + 1000.0 / dist
 
 func update_car_fitness():
-	var rpm := _get_rpm()
-	for car in cars:
-		if car:
-			if killswitch:
-				kill_stagnant_car(car)
-			car.fitness = _eval_fitness(car, rpm)
-
+	_update_car_fitness_budgeted()
+	
 func get_best_speed():
 	for car in cars:
 		if car and !car.crashed:

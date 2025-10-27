@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://cpcimqbclso4q"]
+
+[ext_resource type="Script" uid="uid://fsoipl7iux08" path="res://scripts/ui/nodegraph/node_editor_popup.gd" id="1"]
+
+[node name="NodeEditorPopup" type="PopupPanel"]
+visible = true
+script = ExtResource("1")

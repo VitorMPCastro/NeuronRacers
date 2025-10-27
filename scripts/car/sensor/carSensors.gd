@@ -28,6 +28,11 @@ var _lod_factor := 1.0                             # 1.0 = normal; >1.0 = slower
 @export var hit_thickness: float = 2.0
 @export var miss_thickness: float = 1.0
 
+@export_category("Throughput")
+@export var rays_per_tick: int = -1                  # -1 = all rays; otherwise update this many per tick (round-robin)
+@export var use_dynamic_lod: bool = true             # adapt update rate by speed
+@export var lod_speed_thresholds_px: Vector2 = Vector2(100.0, 400.0)  # <x => slower, >y => faster
+
 var _last_segments: Array = []              # Array[{from:Vector2, to:Vector2, hit:bool}]
 var _last_values_norm: PackedFloat32Array   # cached normalized values (size == enabled rays)
 var _last_values_raw: PackedFloat32Array    # cached raw distances in pixels
@@ -35,6 +40,16 @@ var _last_values_raw: PackedFloat32Array    # cached raw distances in pixels
 # Budgeted sampling state
 var _accum := 0.0
 var _query := PhysicsRayQueryParameters2D.new()
+
+@export var use_phased_updates: bool = true
+var _phase_mod: int = 0
+var _phase_total: int = 1
+
+var _rr_index: int = 0  # round-robin cursor across enabled rays
+
+func set_phase(mod_index: int, total: int) -> void:
+	_phase_mod = clampi(mod_index, 0, max(1, total) - 1)
+	_phase_total = max(1, total)
 
 func _ready() -> void:
 	# Authoring helper: generate rays if none provided
@@ -62,9 +77,28 @@ func _ready() -> void:
 func set_lod_factor(f: float) -> void:
 	_lod_factor = max(0.25, f)
 
-func _physics_process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
+	if use_phased_updates and _phase_total > 1:
+		if int(Engine.get_physics_frames() % _phase_total) != _phase_mod:
+			return
+
+	# Optional dynamic LOD: slower cars sample less frequently
+	if use_dynamic_lod:
+		var sp := 0.0
+		var own := get_owner()
+		if own != null:
+			if own.has_method("get_speed_px"):
+				sp = own.get_speed_px()
+			elif "velocity" in own:
+				sp = (own.velocity as Vector2).length()
+		var lo := lod_speed_thresholds_px.x
+		var hi = max(lo + 1.0, lod_speed_thresholds_px.y)
+		# Map speed to LOD factor in [2.0 .. 1.0] (slow -> fewer updates)
+		var t = clamp((sp - lo) / (hi - lo), 0.0, 1.0)
+		_lod_factor = lerp(2.0, 1.0, t)
+
 	var step = (1.0 / max(1.0, update_hz)) * _lod_factor
-	_accum += delta
+	_accum += _delta
 	if _accum < step:
 		return
 	_accum = 0.0
@@ -133,17 +167,32 @@ func _cast_all_rays() -> void:
 	var origin := global_position
 	var basis_rot := global_rotation
 
+	# Build enabled-ray index list once
+	var enabled_indices: Array[int] = []
+	for i in range(rays.size()):
+		var r = rays[i]
+		if r != null and r.enabled:
+			enabled_indices.append(i)
+	var enabled := enabled_indices.size()
+
 	# Prepare buffers with exact enabled-ray count (reuse if sizes match)
-	var enabled := get_enabled_ray_count()
 	if _last_values_raw.size() != enabled:
 		_last_values_raw.resize(enabled)
 	if normalize_output and _last_values_norm.size() != enabled:
 		_last_values_norm.resize(enabled)
+	if enabled == 0:
+		return
 
-	var idx := 0
-	for ray_def in rays:
-		if ray_def == null or !ray_def.enabled:
-			continue
+	# Choose how many rays to update this tick
+	var quota := enabled if rays_per_tick <= 0 else clampi(rays_per_tick, 1, enabled)
+	if _rr_index >= enabled:
+		_rr_index = 0
+
+	# Update a subset in round-robin to spread cost over multiple ticks
+	for j in range(quota):
+		var k := (_rr_index + j) % enabled                # slot in enabled-ray order
+		var ray_i := enabled_indices[k]                   # index into 'rays' array
+		var ray_def: SensorRay = rays[ray_i]
 
 		var dir := Vector2.RIGHT.rotated(deg_to_rad(ray_def.angle_deg) + basis_rot)
 		var max_len = min(max(1.0, ray_def.max_length_px), default_max_length_px)
@@ -156,21 +205,23 @@ func _cast_all_rays() -> void:
 		var hit := space.intersect_ray(_query)
 
 		if hit.is_empty():
-			_last_values_raw[idx] = max_len
+			_last_values_raw[k] = max_len
 			if normalize_output:
-				_last_values_norm[idx] = no_hit_value
+				_last_values_norm[k] = no_hit_value
 			if draw_debug:
 				_last_segments.append({ "from": from, "to": to, "hit": false })
 		else:
 			var hit_pos: Vector2 = hit["position"]
 			var dist := from.distance_to(hit_pos)
-			_last_values_raw[idx] = dist
+			_last_values_raw[k] = dist
 			if normalize_output:
 				var v = dist / max_len
-				_last_values_norm[idx] = clamp(v, 0.0, 1.0) if clamp_output else v
+				_last_values_norm[k] = clamp(v, 0.0, 1.0) if clamp_output else v
 			if draw_debug:
 				_last_segments.append({ "from": from, "to": hit_pos, "hit": true })
-		idx += 1
+
+	# Advance cursor for next tick
+	_rr_index = (_rr_index + quota) % enabled
 
 func _draw() -> void:
 	if !draw_debug:
