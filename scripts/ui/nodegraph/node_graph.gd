@@ -35,10 +35,10 @@ func set_data_context(b: DataBroker, p: Object) -> void:
 	broker = b
 	provider = p
 	for n in get_children():
-		if n is NodeBase:
-			(n as NodeBase).set_data_context(broker, provider)
+		if n is BaseNode:
+			(n as BaseNode).set_data_context(broker, provider)
 
-func add_node(node: NodeBase, pos: Vector2) -> void:
+func add_node(node: BaseNode, pos: Vector2) -> void:
 	add_child(node)
 	node.position = pos
 	node.set_graph(self)
@@ -62,41 +62,30 @@ func _find_ui_root_control() -> Control:
 		cur = p
 	return null
 
+# Convert a viewport/screen point to this NodeGraph local coordinates (single transform)
 func screen_to_graph_local(screen_pos: Vector2) -> Vector2:
-	# Convert a viewport/screen point into this Control's local space using its global transform.
-	# This handles any parent offsets, containers and anchors.
 	var inv := get_global_transform().affine_inverse()
 	return inv * screen_pos
 
 func _gui_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_RIGHT and ev.pressed:
 		var vp := get_viewport()
-		var vp_mouse = ev.global_position
+		var vp_mouse: Vector2 = ev.global_position
 		if vp:
-			vp_mouse = vp.get_mouse_position()  # viewport/screen coords
-
-		var graph_local := screen_to_graph_local(vp_mouse)
-
-		# compute ui_root first (avoid using ui_root before declaration)
-		var ui_root := _find_ui_root_control()
-
-		# Diagnostics (now include ui_root dump)
+			vp_mouse = vp.get_mouse_position()
+		var graph_local: Vector2 = screen_to_graph_local(vp_mouse)
 		print_debug("[NodeGraph] RIGHT CLICK vp_mouse=", vp_mouse, " graph_local=", graph_local, " ev.position(local)=", ev.position)
-		_dump_ancestors_info(self)
-		if ui_root:
-			_dump_ancestors_info(ui_root)
-		_dump_ancestors_info(get_tree().root)
-		print_debug("viewport canvas_transform=", get_viewport().get_canvas_transform())
 
 		var menu := NodeContextMenu.new()
-
-		# Parent the popup to the same container that holds the NodeGraph so coords match.
-		var menu_parent := get_parent() if get_parent() != null else get_tree().root
+		var menu_parent: Node = null
+		if get_parent() != null:
+			menu_parent = get_parent()
+		else:
+			menu_parent = get_tree().root
 		menu_parent.add_child(menu)
 		print_debug("[NodeGraph] parenting menu to menu_parent=", menu_parent)
 
 		menu.setup(self, vp_mouse, graph_local)
-		# popup_at_screen expects viewport/screen coords; parent is already set
 		menu.popup_at_screen(vp_mouse)
 		return
 
@@ -113,7 +102,7 @@ func _finish_drag() -> void:
 	var mouse_global := get_viewport().get_mouse_position()
 	var best: NodePort = null
 	for node in get_children():
-		if !(node is NodeBase):
+		if !(node is BaseNode):
 			continue
 		for vbox in node.get_children():
 			if !(vbox is Container):
@@ -183,9 +172,9 @@ func _draw_curve_between(a_global: Vector2, b_global: Vector2, ghost: bool = fal
 
 func _draw() -> void:
 	for node in get_children():
-		if !(node is NodeBase):
+		if !(node is BaseNode):
 			continue
-		var nb := node as NodeBase
+		var nb := node as BaseNode
 		for out_port in nb.outputs:
 			for in_port in out_port.connections:
 				_draw_curve_between(out_port.get_anchor_global_pos(), in_port.get_anchor_global_pos())
@@ -198,36 +187,36 @@ func clear_caches() -> void:
 	_eval_cache.clear()
 	_expr_cache.clear()
 
-func evaluate_node_output(node: NodeBase, output_idx: int) -> float:
+func evaluate_node_output(node: BaseNode, output_idx: int) -> float:
 	if broker and node.data_broker == null:
 		node.set_data_context(broker, provider)
 	var cache = _eval_cache.get(node, {})
 	if cache.has(output_idx):
 		return float(cache[output_idx])
-	var v := node.evaluate_output(output_idx)
+	var v = node.evaluate_output(output_idx)
 	cache[output_idx] = v
 	_eval_cache[node] = cache
 	return v
 
-func compile_node_output_expr(node: NodeBase, output_idx: int) -> String:
+func compile_node_output_expr(node: BaseNode, output_idx: int) -> String:
 	var cache = _expr_cache.get(node, {})
 	if cache.has(output_idx):
 		return String(cache[output_idx])
-	var expr := node.compile_output_expression(output_idx)
+	var expr = node.compile_output_expression(output_idx)
 	cache[output_idx] = expr
 	_expr_cache[node] = cache
 	return expr
 
-func compile_port_expr(node: NodeBase, input_index: int) -> Array[String]:
+func compile_port_expr(node: BaseNode, input_index: int) -> Array[String]:
 	if input_index < 0 or input_index >= node.inputs.size():
 		return []
-	var port := node.inputs[input_index]
+	var port = node.inputs[input_index]
 	var exprs: Array[String] = []
 	for other in port.connections:
-		var other_node := other._get_node_base()
+		var other_node = other._get_node_base()
 		if other_node == null:
 			continue
-		var out_idx := other_node.outputs.find(other)
+		var out_idx = other_node.outputs.find(other)
 		if out_idx >= 0:
 			exprs.append(compile_node_output_expr(other_node, out_idx))
 	return exprs
@@ -236,7 +225,7 @@ func evaluate_fitness() -> void:
 	# Fitness node will publish equation to AgentManager
 	_expr_cache.clear()
 	for node in get_children():
-		if node is NodeBase and node.has_method("apply_fitness"):
+		if node is BaseNode and node.has_method("apply_fitness"):
 			node.apply_fitness(self)
 
 func save_to_file(path: String) -> bool:
@@ -246,9 +235,9 @@ func save_to_file(path: String) -> bool:
 	}
 	# serialize nodes
 	for node in get_children():
-		if not (node is NodeBase):
+		if not (node is BaseNode):
 			continue
-		var n := node as NodeBase
+		var n := node as BaseNode
 		var sn := {
 			"id": str(n.get_instance_id()),
 			"script": n.get_script().resource_path if n.get_script() else "",
@@ -271,13 +260,13 @@ func save_to_file(path: String) -> bool:
 		out["nodes"].append(sn)
 	# serialize connections
 	for node in get_children():
-		if not (node is NodeBase):
+		if not (node is BaseNode):
 			continue
-		var n := node as NodeBase
+		var n := node as BaseNode
 		for out_idx in range(n.outputs.size()):
-			var pout := n.outputs[out_idx]
+			var pout = n.outputs[out_idx]
 			for connected in pout.connections:
-				var other_node := connected._get_node_base()
+				var other_node = connected._get_node_base()
 				if other_node == null:
 					continue
 				var conn := {
@@ -313,7 +302,7 @@ func load_from_file(path: String) -> bool:
 	var data = result.result
 	# clear existing graph nodes
 	for c in get_children().duplicate():
-		if c is NodeBase:
+		if c is BaseNode:
 			remove_child(c)
 			c.queue_free()
 	# instantiate nodes, keep id -> instance map
@@ -326,7 +315,7 @@ func load_from_file(path: String) -> bool:
 		if scr == null:
 			push_warning("Could not load node script: " + script_path)
 			continue
-		var node := scr.new() as NodeBase
+		var node := scr.new() as BaseNode
 		add_child(node)
 		node.position = Vector2(sn["pos"][0], sn["pos"][1])
 		node.set_graph(self)
@@ -377,7 +366,7 @@ func spawn_node_from_entry(entry: Dictionary, at_global: Vector2) -> void:
 	if scr == null:
 		push_error("Node script not found: " + script_path)
 		return
-	var node := scr.new() as NodeBase
+	var node := scr.new() as BaseNode
 	if node == null:
 		push_error("Failed to instantiate node from: " + script_path)
 		return

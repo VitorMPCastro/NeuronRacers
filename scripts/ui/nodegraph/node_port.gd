@@ -16,11 +16,11 @@ const RADIUS := 6.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 
-func _get_node_base() -> NodeBase:
+func _get_node_base() -> BaseNode:
 	var n: Node = self
-	while n and !(n is NodeBase):
+	while n and !(n is BaseNode):
 		n = n.get_parent()
-	return n as NodeBase
+	return n as BaseNode
 
 func can_accept_more() -> bool:
 	if unlimited:

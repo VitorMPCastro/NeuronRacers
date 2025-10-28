@@ -1,38 +1,20 @@
-extends NodeBase
+extends BaseNode
 class_name MinMaxNode
 
-@export_enum("Max", "Min") var mode: String = "Max"
+@export var mode_max: bool = true # true=max, false=min
 
 func _ready() -> void:
-	title = "Min/Max"
-	_build_ui()
-	add_input_port("Values", 1024)
-	add_output_port("Result", true)
+	configure_ports([{}], [{"name":"out","max":-1}])
 
-func evaluate_output(_port_index: int) -> float:
-	var vals := get_input_values(0)
-	if vals.is_empty():
+func evaluate() -> Variant:
+	var vals := []
+	for i in inputs:
+		for c in i["connections"]:
+			if c.node and c.node.has_method("evaluate"):
+				vals.append(c.node.evaluate())
+	if vals.size() == 0:
 		return 0.0
-	var res := _sanitize_number(vals[0])
-	for i in range(1, vals.size()):
-		var v := _sanitize_number(vals[i])
-		if mode == "Max":
-			if v > res: res = v
-		else:
-			if v < res: res = v
-	return res
-
-func compile_output_expression(_port_index: int) -> String:
-	var exprs := graph.compile_port_expr(self, 0)
-	if exprs.is_empty():
-		return "0"
-	if exprs.size() == 1:
-		return "(" + exprs[0] + ")"
-	var acc := "(" + exprs[0] + ")"
-	if mode == "Max":
-		for i in range(1, exprs.size()):
-			acc = "max(" + acc + ", " + exprs[i] + ")"
-	else:
-		for i in range(1, exprs.size()):
-			acc = "min(" + acc + ", " + exprs[i] + ")"
-	return "(" + acc + ")"
+	var nums := []
+	for v in vals:
+		nums.append(float(v))
+	return (nums.max() if mode_max else nums.min())

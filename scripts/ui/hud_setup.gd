@@ -2,6 +2,7 @@ extends CanvasLayer
 
 @onready var frame_scene := preload("res://scenes/ui/UIFrame.tscn")
 @onready var leaderboard_container_scene := preload("res://scenes/ui/elements/leaderboard_container.tscn")
+@onready var node_toggle_scene := preload("res://scenes/ui/node_editor_toggle.tscn")
 
 var frame: UIFrame
 var _car_selector_top: OptionButton
@@ -39,6 +40,11 @@ var _car_handle_overlay: CarHandleLineOverlay = null
 var _show_car_handle: bool = true
 
 var _db_cached: DataBroker = null
+
+# If auto-detection fails, set this in the inspector to the BottomBar node inside your UIFrame instance.
+@export var bottom_bar_path: NodePath = NodePath("")
+
+var node_toggle_instance: Node = null
 
 func _ready() -> void:
 	frame = frame_scene.instantiate() as UIFrame
@@ -154,6 +160,68 @@ func _ready() -> void:
 	_gen_file_dialog.file_selected.connect(_on_generation_json_selected)
 
 	# Top bar: Spectate panel with car selector and highlight toggle
+	# Guard: don't recreate if we've already added the spectate UI to the frame.
+	if not frame.has_node("SpectateCollapsible"):
+		var spectate_row := HBoxContainer.new()
+		spectate_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var spectate_lbl := Label.new()
+		spectate_lbl.text = "Spectate:"
+		spectate_row.add_child(spectate_lbl)
+
+		_car_selector_top = OptionButton.new()
+		_car_selector_top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_car_selector_top.item_selected.connect(_on_car_selected_top)
+		spectate_row.add_child(_car_selector_top)
+
+		var btn_best_top := Button.new()
+		btn_best_top.text = "Best (B)"
+		btn_best_top.pressed.connect(func():
+			_always_track_best = false
+			var best := _compute_best_car()
+			if best: _set_observed_car(best, true)
+		)
+		spectate_row.add_child(btn_best_top)
+
+		var chk_highlight := CheckBox.new()
+		chk_highlight.text = "Highlight target"
+		chk_highlight.button_pressed = _camera and _camera.has_method("highlight_enabled") and _camera.highlight_enabled
+		chk_highlight.toggled.connect(func(on: bool):
+			var cam = _get_camera()
+			if cam and cam.has_method("highlight_enabled"):
+				cam.highlight_enabled = on
+			# Re-apply to current target to reflect change now
+			if cam and cam.has_method("set_target") and cam.has("target"):
+				cam.set_target(cam.get("target"))
+		)
+		spectate_row.add_child(chk_highlight)
+
+		var collapsible := CollapsiblePanel.new()
+		collapsible.name = "SpectateCollapsible"
+		collapsible.title = "Spectate"
+		collapsible.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		collapsible.set_content(spectate_row)
+		collapsible.size_flags_vertical = 0
+
+		frame.add_to_top(collapsible)
+	# else: spectate UI already present, skip duplicate creation
+
+	# Ensure selectors are populated for the first population (signal may have fired before HUD connected)
+	_rebuild_car_selectors()
+	_pick_initial_observed()
+	_refresh_neuron_graph()
+	_refresh_input_graph()
+
+	# File dialog for loading generations (hidden until used)
+	_gen_file_dialog = FileDialog.new()
+	_gen_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_gen_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_gen_file_dialog.filters = PackedStringArray(["*.json ; JSON files"])
+	_gen_file_dialog.title = "Select generation JSON"
+	add_child(_gen_file_dialog)
+	_gen_file_dialog.file_selected.connect(_on_generation_json_selected)
+
+	# Top bar: Spectate panel with car selector and highlight toggle
 	var spectate_row := HBoxContainer.new()
 	spectate_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
@@ -202,6 +270,29 @@ func _ready() -> void:
 	_pick_initial_observed()
 	_refresh_neuron_graph()
 	_refresh_input_graph()
+
+	# ---- remove duplicate UIFrame instantiation and use the existing `frame` ----
+	# try explicit path first (if set)
+	var bottom = null
+	if bottom_bar_path != NodePath(""):
+		bottom = frame.get_node_or_null(bottom_bar_path)
+
+	# fallback heuristics: common node names used for bottom bars
+	if bottom == null:
+		bottom = frame.get_node_or_null("BottomBar") if frame.has_node("BottomBar") else null
+	if bottom == null:
+		bottom = frame.get_node_or_null("Bottom/BottomBar") if frame.has_node("Bottom/BottomBar") else null
+	if bottom == null:
+		bottom = frame.get_node_or_null("HUD/BottomBar") if frame.has_node("HUD/BottomBar") else null
+
+	if bottom:
+		# instantiate the toggle and add to bottom bar
+		node_toggle_instance = node_toggle_scene.instantiate()
+		bottom.add_child(node_toggle_instance)
+		# ensure it's visible at the end
+		bottom.move_child(node_toggle_instance, max(0, bottom.get_child_count() - 1))
+	else:
+		push_warning("hud_setup.gd: could not find BottomBar. Set bottom_bar_path export or update the heuristic paths.")
 
 # NEW: keep camera following HUD’s observed car and poll fallback timer if needed
 func _process(delta: float) -> void:
@@ -494,10 +585,13 @@ func _build_bottom_tabs() -> void:
 	frame.add_to_bottom(tabs)
 
 	# Add NodeEditorToggle to bottom bar so users can open the editor from HUD
-	var toggle_scene = preload("res://scenes/ui/node_editor_toggle.tscn")
-	var toggle_inst := toggle_scene.instantiate() as Control
-	# place it next to bottom tabs
-	frame.add_to_bottom(toggle_inst)
+	# Guard: don't add if a NodeEditorToggle is already present
+	if not frame.has_node("NodeEditorToggleInst"):
+		var toggle_scene = preload("res://scenes/ui/node_editor_toggle.tscn")
+		var toggle_inst := toggle_scene.instantiate() as Control
+		toggle_inst.name = "NodeEditorToggleInst"
+		# place it next to bottom tabs
+		frame.add_to_bottom(toggle_inst)
 
 func _make_bottom_inputs_panel() -> Control:
 	var panel := CollapsiblePanel.new()
@@ -1089,10 +1183,10 @@ func _compute_rank_index(target_car: Car) -> int:
 		var s := 0.0
 		match typeof(v):
 			TYPE_FLOAT, TYPE_INT: s = float(v)
-			TYPE_BOOL: s = (1.0 if v else 0.0)
+			TYPE_BOOL: return (1.0 if v else 0.0)
 			TYPE_STRING:
-				var p := str(v)
-				s = float(p) if p.is_valid_float() else 0.0
+				var p := String(v)
+				return float(p) if p.is_valid_float() else 0.0
 			_: s = 0.0
 		entries.append({"car": c, "score": s})
 	# Sort desc by score
