@@ -1,5 +1,8 @@
 # Neuron Racers — Minimal Developer README
 
+Notion Link
+[https://neuron-racers.notion.site/Neuron-Racers](https://neuron-racers.notion.site/Neuron-Racers-27a2613bc979809d8f62f62966b453a4)
+
 Short overview
 - Neuron Racers is a Godot 4 project that simulates vehicle agents trained by neural networks and exposes UI tooling (HUD, leaderboard, and a reusable node editor for constructing fitness expressions).
 - Core systems: AgentManager (evolution + spawn), GameManager (scene glue), DataBroker (typed data access for UI and node graph), NodeGraph (visual node editor for fitness/formulas).
